@@ -92,28 +92,3 @@ export function createInitializeHash(proxyAddress: Hex, initArgs: Hex): Hex {
     )
   );
 }
-
-// Create an authorization object for EIP-7702
-export function createAuthorization(
-  targetAddress: Hex,
-  codeTemplate: Hex,
-  signature: Hex,
-  nonce = 0
-) {
-  const [r, s, v] = [
-    signature.slice(0, 66),
-    `0x${signature.slice(66, 130)}`,
-    `0x${signature.slice(130, 132)}`
-  ] as const;
-
-  return {
-    contractAddress: targetAddress,
-    codeTemplate,
-    chainId: 31337,  // Anvil's chain ID
-    nonce,
-    r: r as Hex,
-    s: s as Hex,
-    v: BigInt(parseInt(v, 16)),
-    yParity: parseInt(v, 16) % 2
-  };
-} 
