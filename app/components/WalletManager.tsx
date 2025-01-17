@@ -7,6 +7,7 @@ import {
   encodeInitializeArgs,
   createInitializeHash,
   localAnvil,
+  signInitialization,
 } from "../lib/wallet-utils";
 import {
   EIP7702ProxyAbi,
@@ -84,21 +85,6 @@ export function WalletManager({
       console.log("Debug - Using proxy address:", proxyAddress);
       console.log("Debug - Relayer address:", relayerWallet.account.address);
 
-      // Create initialization args with relayer as the owner
-      const initArgs = encodeInitializeArgs(relayerWallet.account.address);
-      console.log("Debug - Init args:", initArgs);
-
-      // Create and sign the initialization hash
-      const initHash = createInitializeHash(proxyAddress, initArgs);
-      console.log("Debug - Init hash:", initHash);
-
-      // Sign the hash with the EOA account
-      const signature = await userWallet.signMessage({
-        message: {raw: initHash},
-        account: account.address as `0x${string}`,
-      });
-      console.log("Debug - Signature:", signature);
-
       // Create the authorization signature
       const authorization = await userWallet.signAuthorization({
         contractAddress: proxyAddress,
@@ -106,36 +92,36 @@ export function WalletManager({
       });
       console.log("Debug - Authorization:", authorization);
 
-    // const hash = await relayerWallet.writeContract({
-    //     address: account.address as `0x${string}`, // Target the EOA instead of the proxy
-    //     abi: [
-    //       {
-    //         type: "function",
-    //         name: "initialize",
-    //         inputs: [
-    //           { name: "args", type: "bytes" },
-    //           { name: "signature", type: "bytes" },
-    //         ],
-    //         outputs: [],
-    //         stateMutability: "payable",
-    //       },
-    //     ],
-    //     functionName: "initialize",
-    //     args: [initArgs, signature],
-    //     value: INITIAL_FUNDING,
-    //     authorizationList: [authorization],
-    //   });
-    const hash = await relayerWallet.sendTransaction({
-      to: account.address as `0x${string}`,
-      value: INITIAL_FUNDING,
-      authorizationList: [authorization],
-    });
+      // const hash = await relayerWallet.writeContract({
+      //     address: account.address as `0x${string}`, // Target the EOA instead of the proxy
+      //     abi: [
+      //       {
+      //         type: "function",
+      //         name: "initialize",
+      //         inputs: [
+      //           { name: "args", type: "bytes" },
+      //           { name: "signature", type: "bytes" },
+      //         ],
+      //         outputs: [],
+      //         stateMutability: "payable",
+      //       },
+      //     ],
+      //     functionName: "initialize",
+      //     args: [initArgs, signature],
+      //     value: INITIAL_FUNDING,
+      //     authorizationList: [authorization],
+      //   });
+      const hash = await relayerWallet.sendTransaction({
+        to: account.address as `0x${string}`,
+        value: INITIAL_FUNDING,
+        authorizationList: [authorization],
+      });
 
       console.log("Debug - Transaction hash:", hash);
 
       // Wait longer to ensure the transaction is processed
-    //   console.log("Debug - Waiting for transaction to be mined...");
-    //   await new Promise((resolve) => setTimeout(resolve, 3000));
+      //   console.log("Debug - Waiting for transaction to be mined...");
+      //   await new Promise((resolve) => setTimeout(resolve, 3000));
 
       // Check the transaction receipt
       const receipt = await publicClient.getTransactionReceipt({
@@ -145,24 +131,24 @@ export function WalletManager({
       console.log("Debug - Transaction status:", receipt.status);
 
       // Wait for next block to ensure code deployment
-    //   console.log("Debug - Waiting for next block...");
-    //   await publicClient.watchBlockNumber({
-    //     onBlockNumber: () => {
-    //       console.log("New block mined");
-    //       return false; // Stop watching
-    //     },
-    //   });
+      //   console.log("Debug - Waiting for next block...");
+      //   await publicClient.watchBlockNumber({
+      //     onBlockNumber: () => {
+      //       console.log("New block mined");
+      //       return false; // Stop watching
+      //     },
+      //   });
 
       // Check if the code was deployed with retries
       console.log("Debug - Checking for code deployment...");
       let code;
-        code = await publicClient.getCode({ address: account.address });
+      code = await publicClient.getCode({ address: account.address });
 
-        if (code && code !== "0x") {
-          console.log("Debug - Code deployed successfully!");
-        } else {
-          console.log("Debug - Code deployment failed");
-        }
+      if (code && code !== "0x") {
+        console.log("Debug - Code deployed successfully!");
+      } else {
+        console.log("Debug - Code deployment failed");
+      }
 
       if (!code || code === "0x") {
         // Also check the proxy template to make sure it has code
@@ -175,6 +161,19 @@ export function WalletManager({
           }. Proxy template has code: ${!!proxyCode && proxyCode !== "0x"}`
         );
       }
+
+      // Create initialization args with relayer as the owner
+      const initArgs = encodeInitializeArgs(relayerWallet.account.address);
+      console.log("Debug - Init args:", initArgs);
+
+      console.log("Debug: proxyAddress", proxyAddress);
+      // Create and sign the initialization hash
+      const initHash = createInitializeHash(proxyAddress, initArgs);
+      console.log("Debug - Init hash:", initHash);
+
+      // Sign the hash with the EOA account (raw signature without Ethereum prefix)
+      const signature = await signInitialization(userWallet, initHash);
+      console.log("Debug - Raw signature:", signature);
 
       // attempting to call initialize on the EOA
       console.log("Debug - Calling initialize on the EOA");
