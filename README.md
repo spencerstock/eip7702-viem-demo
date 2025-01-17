@@ -1,39 +1,65 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-onchain`]().
+# EIP-7702 Wallet Demo
 
+A simple demo application showcasing EIP-7702 wallet creation and upgrades using viem.
 
-## Getting Started
+## Setup
 
-First, install dependencies:
+### Local Development with Anvil
 
+1. Install Foundry:
+```bash
+curl -L https://foundry.paradigm.xyz | bash
+```
+
+2. Start Anvil with Prague hardfork:
+```bash
+anvil --hardfork prague
+```
+
+3. Install dependencies:
 ```bash
 npm install
-# or
-yarn install
-# or
-pnpm install
-# or
-bun install
 ```
 
-Next, run the development server:
-
+4. Start the development server:
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### Base Sepolia Testnet
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+1. Create a `.env` file from the example:
+```bash
+cp .env.example .env
+```
 
+2. Add your relayer wallet's private key to `.env`:
+```
+RELAYER_PRIVATE_KEY=your_private_key_here
+```
 
-## Learn More
+3. Install dependencies and start the server:
+```bash
+npm install
+npm run dev
+```
 
-To learn more about OnchainKit, see our [documentation](https://docs.onchainkit.com).
+## Usage
 
-To learn more about Next.js, see the [Next.js documentation](https://nextjs.org/docs).
+1. Click "Create new EOA Wallet" to generate a new wallet
+2. Click "Upgrade EOA to Smart Wallet" to:
+   - Sign an authorization for the proxy contract
+   - Deploy the proxy using the relayer
+3. The transaction hash will be displayed with a link to the block explorer
+
+## Contract Addresses
+
+- Base Sepolia:
+  - Proxy: [TODO: Add address]
+- Anvil:
+  - Deploy manually using Foundry
+
+## Development
+
+- `app/lib/wallet-utils.ts`: Wallet creation and management
+- `app/lib/abi/`: Contract ABIs and addresses
