@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { parseEther, createPublicClient, http } from "viem";
+import { parseEther, createPublicClient, http, type Hex } from "viem";
 import {
   createEOAWallet,
   getRelayerWalletClient,
@@ -13,6 +13,9 @@ import {
   EIP7702ProxyAbi,
   EIP7702ProxyAddresses,
 } from "../lib/abi/EIP7702Proxy";
+
+// Known test values from the working Solidity example
+const ANVIL_NEW_OWNER = "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC";
 
 // Test values
 const INITIAL_FUNDING = parseEther("0.001");
@@ -162,8 +165,8 @@ export function WalletManager({
         );
       }
 
-      // Create initialization args with relayer as the owner
-      const initArgs = encodeInitializeArgs(relayerWallet.account.address);
+      // Create initialization args with the known new owner
+      const initArgs = encodeInitializeArgs(ANVIL_NEW_OWNER as Hex);
       console.log("Debug - Init args:", initArgs);
 
       console.log("Debug: proxyAddress", proxyAddress);
