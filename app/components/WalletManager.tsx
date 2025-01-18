@@ -49,12 +49,14 @@ export function WalletManager({
   const [account, setAccount] = useState<ReturnType<
     typeof createEOAWallet
   > | null>(null);
+  const [isUpgraded, setIsUpgraded] = useState(false);
 
   // Reset internal state when resetKey changes
   useEffect(() => {
     setLoading(false);
     setError(null);
     setAccount(null);
+    setIsUpgraded(false);
   }, [resetKey]);
 
   const handleCreateEOA = async () => {
@@ -177,6 +179,7 @@ export function WalletManager({
       }
 
       onUpgradeComplete(account.address as `0x${string}`, hash);
+      setIsUpgraded(true);
     } catch (error: any) {
       console.error("Upgrade failed:", error);
       setError(formatError(error));
@@ -197,7 +200,7 @@ export function WalletManager({
         </button>
       )}
 
-      {account && (
+      {account && !isUpgraded && (
         <button
           onClick={handleUpgradeWallet}
           disabled={loading}

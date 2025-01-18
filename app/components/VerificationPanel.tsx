@@ -1,43 +1,64 @@
 import { useState } from "react";
-import { createPublicClient, parseEther } from "viem";
+import { createPublicClient, parseEther, formatEther } from "viem";
 import { getRelayerWalletClient, localAnvil } from "../lib/wallet-utils";
 import { http } from "viem";
 
 // Test values
 const TEST_RETURN = parseEther("0.0001");
 const EMPTY_CALLDATA = "0x" as const;
+const ODYSSEY_EXPLORER = "https://odyssey-explorer.ithaca.xyz";
 
 interface VerificationPanelProps {
   smartWalletAddress: `0x${string}`;
   useAnvil: boolean;
 }
 
+function formatExplorerLink(hash: string, useAnvil: boolean): string | null {
+  if (useAnvil) {
+    return null;
+  }
+  return `${ODYSSEY_EXPLORER}/tx/${hash}`;
+}
+
+function TransactionHash({
+  hash,
+  useAnvil,
+}: {
+  hash: string;
+  useAnvil: boolean;
+}) {
+  const link = formatExplorerLink(hash, useAnvil);
+  if (!link) {
+    return <span className="font-mono">{hash}</span>;
+  }
+  return (
+    <a
+      href={link}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="text-blue-400 hover:text-blue-300 underline font-mono"
+    >
+      {hash}
+    </a>
+  );
+}
+
 export function VerificationPanel({
   smartWalletAddress,
   useAnvil,
 }: VerificationPanelProps) {
-  const [verificationStatus, setVerificationStatus] = useState<string | null>(
-    null
-  );
+  const [verificationStatus, setVerificationStatus] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
 
   const runVerification = async () => {
     try {
       setLoading(true);
+      setVerificationStatus([]);
       const relayerWallet = await getRelayerWalletClient(useAnvil);
       const publicClient = createPublicClient({
         chain: localAnvil,
         transport: http(),
       });
-
-      console.log("Debug - Smart wallet address:", smartWalletAddress);
-      console.log("Debug - Relayer address:", relayerWallet.account.address);
-
-      // First check if there's any code at the address
-      const code = await publicClient.getBytecode({
-        address: smartWalletAddress,
-      });
-      console.log("Debug - Code at smart wallet:", code);
 
       // First verify the relayer is the owner
       const isOwner = await publicClient.readContract({
@@ -55,21 +76,20 @@ export function VerificationPanel({
         args: [relayerWallet.account.address],
       });
 
-      console.log("Debug - Is owner result:", isOwner);
-
       if (!isOwner) {
         throw new Error("Relayer is not the owner of the smart wallet");
       }
 
-      setVerificationStatus("✓ Relayer verified as owner");
+      setVerificationStatus((prev) => [...prev, "✓ Relayer verified as owner"]);
 
       // Get the smart wallet's balance
       const balance = await publicClient.getBalance({
         address: smartWalletAddress,
       });
-      setVerificationStatus(
-        (prev) => `${prev}\n✓ Smart wallet balance: ${balance} wei`
-      );
+      setVerificationStatus((prev) => [
+        ...prev,
+        `✓ Smart wallet balance: ${formatEther(balance)} ETH`,
+      ]);
 
       // Test execution by sending ETH back to the relayer
       const execHash = await relayerWallet.writeContract({
@@ -91,22 +111,25 @@ export function VerificationPanel({
         args: [relayerWallet.account.address, TEST_RETURN, EMPTY_CALLDATA],
       });
 
-      setVerificationStatus(
-        (prev) => `${prev}\n✓ Test transaction executed: ${execHash}`
-      );
+      setVerificationStatus((prev) => [
+        ...prev,
+        `✓ Test transaction executed: ${execHash}`,
+      ]);
 
       // Verify the balance changed
       const balanceAfter = await publicClient.getBalance({
         address: smartWalletAddress,
       });
-      setVerificationStatus(
-        (prev) =>
-          `${prev}\n✓ Smart wallet balance after: ${balanceAfter} wei\n` +
-          `✓ Successfully transferred ${TEST_RETURN} wei back to relayer`
-      );
+      setVerificationStatus((prev) => [
+        ...prev,
+        `✓ Smart wallet balance after: ${formatEther(balanceAfter)} ETH`,
+        `✓ Successfully transferred ${formatEther(
+          TEST_RETURN
+        )} ETH back to relayer`,
+      ]);
     } catch (error: any) {
       console.error("Verification failed:", error);
-      setVerificationStatus(`❌ Verification failed: ${error.message}`);
+      setVerificationStatus([`❌ Verification failed: ${error.message}`]);
     } finally {
       setLoading(false);
     }
@@ -122,12 +145,27 @@ export function VerificationPanel({
         {loading ? "Verifying..." : "Verify Ownership"}
       </button>
 
-      {verificationStatus && (
+      {verificationStatus.length > 0 && (
         <div>
           <p className="mb-2">Verification Status:</p>
-          <pre className="bg-gray-900 text-green-400 p-2 rounded font-mono whitespace-pre-wrap">
-            {verificationStatus}
-          </pre>
+          <div className="bg-gray-900 text-green-400 p-4 rounded font-mono text-left">
+            {verificationStatus.map((status, index) => {
+              if (status.includes("transaction executed:")) {
+                const [prefix, hash] = status.split(": ");
+                return (
+                  <div key={index} className="mb-1">
+                    {prefix}:{" "}
+                    <TransactionHash hash={hash} useAnvil={useAnvil} />
+                  </div>
+                );
+              }
+              return (
+                <div key={index} className="mb-1">
+                  {status}
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
     </div>
