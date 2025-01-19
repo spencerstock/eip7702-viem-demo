@@ -1,12 +1,27 @@
-import { useState } from "react";
-import { createPublicClient, formatEther } from "viem";
+import { useState, useCallback } from "react";
+import {
+  createPublicClient,
+  formatEther,
+  parseEther,
+  http,
+  type Address,
+} from "viem";
 import { getRelayerWalletClient, localAnvil } from "../lib/wallet-utils";
-import { http } from "viem";
 import { odysseyTestnet } from "../lib/chains";
+import { EntryPointAddress, EntryPointAbi } from "../lib/abi/EntryPoint";
+import {
+  getSmartAccountClient,
+  createAndSignUserOp,
+  ensureEntryPointDeposit,
+  submitUserOp,
+  withdrawEntryPointDeposit,
+} from "../lib/smart-account";
+import { type UserOperation } from "viem/account-abstraction";
 
 // Test values
 const TEST_RETURN = BigInt(1); // 1 wei
 const EMPTY_CALLDATA = "0x" as const;
+const REQUIRED_DEPOSIT = BigInt(1e16); // 0.01 ETH should be enough for gas costs
 
 interface VerificationPanelProps {
   smartWalletAddress: `0x${string}`;
@@ -49,149 +64,55 @@ export function VerificationPanel({
 }: VerificationPanelProps) {
   const [verificationStatus, setVerificationStatus] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
+  const [verified, setVerified] = useState(false);
+  const [relayerAddress, setRelayerAddress] = useState<`0x${string}` | null>(
+    process.env.NEXT_PUBLIC_RELAYER_ADDRESS as `0x${string}`
+  );
 
-  const runVerification = async () => {
+  const addStatus = (status: string) => {
+    setVerificationStatus((prev) => [...prev, status]);
+  };
+
+  const handleVerify = useCallback(async () => {
     try {
       setLoading(true);
-      setVerificationStatus([]);
-      const relayerWallet = await getRelayerWalletClient(useAnvil);
-      const publicClient = createPublicClient({
-        chain: useAnvil ? localAnvil : odysseyTestnet,
-        transport: http(),
+
+      // Call the API to handle verification
+      const response = await fetch("/api/verify", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          smartWalletAddress,
+          useAnvil,
+        }),
       });
 
-      // First verify the relayer is the owner
-      const isOwner = await publicClient.readContract({
-        address: smartWalletAddress,
-        abi: [
-          {
-            type: "function",
-            name: "isOwnerAddress",
-            inputs: [{ name: "owner", type: "address" }],
-            outputs: [{ type: "bool" }],
-            stateMutability: "view",
-          },
-        ],
-        functionName: "isOwnerAddress",
-        args: [relayerWallet.account.address],
-      });
-
-      if (!isOwner) {
-        throw new Error("Relayer is not the owner of the smart wallet");
+      if (!response.ok) {
+        const error = await response.text();
+        throw new Error(error);
       }
 
-      setVerificationStatus((prev) => [...prev, "✓ Relayer verified as owner"]);
-
-      // Get the smart wallet's initial balance
-      const initialBalance = await publicClient.getBalance({
-        address: smartWalletAddress,
-      });
-      setVerificationStatus((prev) => [
-        ...prev,
-        `✓ Initial smart wallet balance: ${initialBalance.toString()} wei (${formatEther(
-          initialBalance
-        )} ETH)`,
-      ]);
-
-      // Get the relayer's initial balance
-      const initialRelayerBalance = await publicClient.getBalance({
-        address: relayerWallet.account.address,
-      });
-      setVerificationStatus((prev) => [
-        ...prev,
-        `✓ Initial relayer balance: ${initialRelayerBalance.toString()} wei (${formatEther(
-          initialRelayerBalance
-        )} ETH)`,
-      ]);
-
-      // Test execution by sending ETH back to the relayer
-      let execHash: `0x${string}`;
-      if (useAnvil && "writeContract" in relayerWallet) {
-        execHash = await relayerWallet.writeContract({
-          address: smartWalletAddress,
-          abi: [
-            {
-              type: "function",
-              name: "execute",
-              inputs: [
-                { name: "target", type: "address" },
-                { name: "value", type: "uint256" },
-                { name: "data", type: "bytes" },
-              ],
-              outputs: [],
-              stateMutability: "payable",
-            },
-          ],
-          functionName: "execute",
-          args: [relayerWallet.account.address, initialBalance, EMPTY_CALLDATA],
-        });
-      } else {
-        // Use API for Odyssey
-        const execResponse = await fetch("/api/relay", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            operation: "execute",
-            targetAddress: smartWalletAddress,
-            args: {
-              target: relayerWallet.account.address,
-              value: initialBalance.toString(),
-              data: EMPTY_CALLDATA,
-            },
-          }),
-        });
-
-        if (!execResponse.ok) {
-          const error = await execResponse.json();
-          throw new Error(error.error || "Failed to execute test transaction");
-        }
-        execHash = (await execResponse.json()).hash;
-      }
-
-      setVerificationStatus((prev) => [
-        ...prev,
-        `✓ Test transaction executed: ${execHash}`,
-      ]);
-
-      // Wait for the transaction to be mined
-      await publicClient.waitForTransactionReceipt({ hash: execHash });
-
-      // Get the final balances
-      const finalWalletBalance = await publicClient.getBalance({
-        address: smartWalletAddress,
-      });
-      const finalRelayerBalance = await publicClient.getBalance({
-        address: relayerWallet.account.address,
-      });
-
-      setVerificationStatus((prev) => [
-        ...prev,
-        `✓ Final smart wallet balance: ${finalWalletBalance.toString()} wei (${formatEther(
-          finalWalletBalance
-        )} ETH)`,
-        `✓ Final relayer balance: ${finalRelayerBalance.toString()} wei (${formatEther(
-          finalRelayerBalance
-        )} ETH)`,
-        `✓ Transferred ${initialBalance.toString()} wei (${formatEther(
-          initialBalance
-        )} ETH) back to relayer`,
-      ]);
-    } catch (error: any) {
+      const { status } = await response.json();
+      status.forEach(addStatus);
+      setVerified(true);
+    } catch (error) {
       console.error("Verification failed:", error);
-      setVerificationStatus([`❌ Verification failed: ${error.message}`]);
+      addStatus(`Verification failed: ${error}`);
     } finally {
       setLoading(false);
     }
-  };
+  }, [smartWalletAddress, useAnvil, addStatus]);
 
   return (
     <div className="mt-4 text-center">
       <button
-        onClick={runVerification}
-        disabled={loading}
+        onClick={handleVerify}
+        disabled={loading || verified}
         className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50 mb-4"
       >
-        {loading ? "Verifying..." : "Verify Ownership"}
+        {loading ? "Verifying..." : verified ? "Verified" : "Verify Ownership"}
       </button>
 
       {verificationStatus.length > 0 && (
@@ -199,7 +120,11 @@ export function VerificationPanel({
           <p className="mb-2">Verification Status:</p>
           <div className="bg-gray-900 text-green-400 p-4 rounded font-mono text-left">
             {verificationStatus.map((status, index) => {
-              if (status.includes("transaction executed:")) {
+              if (
+                status.includes("transaction executed:") ||
+                status.includes("Transaction hash:") ||
+                status.includes("UserOperation hash:")
+              ) {
                 const [prefix, hash] = status.split(": ");
                 return (
                   <div key={index} className="mb-1">
