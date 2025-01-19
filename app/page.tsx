@@ -3,28 +3,33 @@
 import { useState } from "react";
 import { WalletManager } from "./components/WalletManager";
 import { VerificationPanel } from "./components/VerificationPanel";
-
-// For now, always use Anvil in development
-const USE_ANVIL = process.env.NODE_ENV === "development";
+import { type ExtendedAccount } from "./lib/wallet-utils";
+import { odysseyTestnet } from "./lib/chains";
 
 export default function Home() {
   const [resetKey, setResetKey] = useState(0);
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
-  const [txHash, setTxHash] = useState<string | null>(null);
+  const [upgradeTxHash, setUpgradeTxHash] = useState<string | null>(null);
+  const [initTxHash, setInitTxHash] = useState<string | null>(null);
   const [isUpgradeConfirmed, setIsUpgradeConfirmed] = useState(false);
+  const [account, setAccount] = useState<ExtendedAccount | null>(null);
 
   const handleReset = () => {
     setWalletAddress(null);
-    setTxHash(null);
+    setUpgradeTxHash(null);
+    setInitTxHash(null);
     setIsUpgradeConfirmed(false);
+    setAccount(null);
     setResetKey((prev) => prev + 1);
   };
 
   const handleUpgradeComplete = async (
     address: `0x${string}`,
-    hash: string
+    upgradeHash: string,
+    initHash: string
   ) => {
-    setTxHash(hash);
+    setUpgradeTxHash(upgradeHash);
+    setInitTxHash(initHash);
     await new Promise((resolve) => setTimeout(resolve, 1000));
     setIsUpgradeConfirmed(true);
   };
@@ -34,10 +39,11 @@ export default function Home() {
       <h1 className="text-4xl font-bold mb-8">EIP-7702 Wallet Demo</h1>
 
       <WalletManager
-        useAnvil={USE_ANVIL}
+        useAnvil={false}
         onWalletCreated={setWalletAddress}
         onUpgradeComplete={handleUpgradeComplete}
         resetKey={resetKey}
+        onAccountCreated={setAccount}
       />
 
       {walletAddress && (
@@ -49,17 +55,33 @@ export default function Home() {
         </div>
       )}
 
-      {txHash && (
+      {upgradeTxHash && (
         <div className="mt-4 text-center">
-          <p className="mb-2">Transaction Hash:</p>
+          <p className="mb-2">Upgrade Transaction:</p>
           <a
-            href={`http://localhost:8545/tx/${txHash}`}
+            href={`${odysseyTestnet.blockExplorers.default.url}/tx/${upgradeTxHash}`}
             target="_blank"
             rel="noopener noreferrer"
             className="text-blue-500 hover:underline"
           >
             <code className="bg-gray-900 text-green-400 p-2 rounded font-mono">
-              {txHash}
+              {upgradeTxHash}
+            </code>
+          </a>
+        </div>
+      )}
+
+      {initTxHash && (
+        <div className="mt-4 text-center">
+          <p className="mb-2">Initialize Transaction:</p>
+          <a
+            href={`${odysseyTestnet.blockExplorers.default.url}/tx/${initTxHash}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-blue-500 hover:underline"
+          >
+            <code className="bg-gray-900 text-green-400 p-2 rounded font-mono">
+              {initTxHash}
             </code>
           </a>
         </div>
@@ -68,7 +90,7 @@ export default function Home() {
       {isUpgradeConfirmed && walletAddress && (
         <VerificationPanel
           smartWalletAddress={walletAddress as `0x${string}`}
-          useAnvil={USE_ANVIL}
+          useAnvil={false}
         />
       )}
 

@@ -3,14 +3,17 @@ import {
   http,
   encodeAbiParameters,
   WalletClient,
+  type Account,
+  type Address,
+  type Hex,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { type Hex } from "viem";
-import { anvil, baseSepolia } from "viem/chains";
+import { anvil } from "viem/chains";
 import { eip7702Actions } from "viem/experimental";
 import { secp256k1 } from "@noble/curves/secp256k1";
 import { hexToBytes } from "@noble/curves/abstract/utils";
 import { keccak256 as keccak256Crypto } from "ethereum-cryptography/keccak";
+import { odysseyTestnet } from "./chains";
 
 // Configure anvil chain with the correct URL
 export const localAnvil = {
@@ -29,58 +32,83 @@ export const localAnvil = {
 export const ANVIL_RELAYER_PRIVATE_KEY =
   "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 
-// Add a type for our extended account
-type ExtendedAccount = ReturnType<typeof privateKeyToAccount> & {
+// Add a type for our extended account that includes the private key
+export type ExtendedAccount = ReturnType<typeof privateKeyToAccount> & {
   _privateKey: Hex;
 };
 
 export async function getRelayerWalletClient(useAnvil = true) {
-  let privateKey: Hex;
-  let chain;
-
   if (useAnvil) {
-    // Use Anvil's pre-funded account
-    privateKey = ANVIL_RELAYER_PRIVATE_KEY as Hex;
-    chain = localAnvil;
-  } else {
-    // Use environment variable for testnet
-    if (!process.env.RELAYER_PRIVATE_KEY) {
-      throw new Error(
-        "RELAYER_PRIVATE_KEY environment variable is required for non-Anvil networks"
-      );
-    }
-    privateKey = process.env.RELAYER_PRIVATE_KEY as Hex;
-    chain = baseSepolia;
+    // For Anvil, we can still use the local account
+    const privateKey = ANVIL_RELAYER_PRIVATE_KEY as Hex;
+    const relayerAccount = privateKeyToAccount(privateKey);
+    return createWalletClient({
+      account: relayerAccount,
+      chain: localAnvil,
+      transport: http(),
+    }).extend(eip7702Actions());
   }
 
-  const relayerAccount = privateKeyToAccount(privateKey);
+  // For non-Anvil, return a proxy that calls our API
+  return {
+    account: {
+      // Use the public relayer address
+      address: process.env.NEXT_PUBLIC_RELAYER_ADDRESS as `0x${string}`,
+    },
+    async sendTransaction({
+      to,
+      value,
+      authorizationList,
+    }: {
+      to: `0x${string}`;
+      value: bigint;
+      authorizationList: any[];
+    }) {
+      const response = await fetch("/api/relay", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          to,
+          value: value.toString(),
+          authorizationList,
+        }),
+      });
 
-  const relayerWallet = createWalletClient({
-    account: relayerAccount,
-    chain,
-    transport: http(),
-  }).extend(eip7702Actions());
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Failed to relay transaction");
+      }
 
-  return relayerWallet;
+      const { hash } = await response.json();
+      return hash as `0x${string}`;
+    },
+  };
 }
 
 export function createEOAClient(account: ExtendedAccount, useAnvil = true) {
   // Create the wallet client with the extended account to get access to private key
   return createWalletClient({
     account,
-    chain: useAnvil ? localAnvil : baseSepolia,
+    chain: useAnvil ? localAnvil : odysseyTestnet,
     transport: http(),
   }).extend(eip7702Actions());
 }
 
-export function createEOAWallet() {
-  const randomBytes = window.crypto.getRandomValues(new Uint8Array(32));
-  const privateKey = `0x${Array.from(randomBytes)
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("")}` as const;
+export async function createEOAWallet(): Promise<ExtendedAccount> {
+  // Generate a random private key
+  const privateKey = `0x${crypto
+    .getRandomValues(new Uint8Array(32))
+    .reduce(
+      (str, byte) => str + byte.toString(16).padStart(2, "0"),
+      ""
+    )}` as Hex;
   const account = privateKeyToAccount(privateKey);
-  // Store the private key on the account object
-  return { ...account, _privateKey: privateKey } as ExtendedAccount;
+  return {
+    ...account,
+    _privateKey: privateKey,
+  };
 }
 
 export function encodeInitializeArgs(ownerAddress: Hex): Hex {

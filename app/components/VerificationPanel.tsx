@@ -1,12 +1,12 @@
 import { useState } from "react";
-import { createPublicClient, parseEther, formatEther } from "viem";
+import { createPublicClient, formatEther } from "viem";
 import { getRelayerWalletClient, localAnvil } from "../lib/wallet-utils";
 import { http } from "viem";
+import { odysseyTestnet } from "../lib/chains";
 
 // Test values
-const TEST_RETURN = parseEther("0.0001");
+const TEST_RETURN = BigInt(1); // 1 wei
 const EMPTY_CALLDATA = "0x" as const;
-const ODYSSEY_EXPLORER = "https://odyssey-explorer.ithaca.xyz";
 
 interface VerificationPanelProps {
   smartWalletAddress: `0x${string}`;
@@ -17,7 +17,7 @@ function formatExplorerLink(hash: string, useAnvil: boolean): string | null {
   if (useAnvil) {
     return null;
   }
-  return `${ODYSSEY_EXPLORER}/tx/${hash}`;
+  return `${odysseyTestnet.blockExplorers.default.url}/tx/${hash}`;
 }
 
 function TransactionHash({
@@ -56,7 +56,7 @@ export function VerificationPanel({
       setVerificationStatus([]);
       const relayerWallet = await getRelayerWalletClient(useAnvil);
       const publicClient = createPublicClient({
-        chain: localAnvil,
+        chain: useAnvil ? localAnvil : odysseyTestnet,
         transport: http(),
       });
 
@@ -82,50 +82,99 @@ export function VerificationPanel({
 
       setVerificationStatus((prev) => [...prev, "✓ Relayer verified as owner"]);
 
-      // Get the smart wallet's balance
-      const balance = await publicClient.getBalance({
+      // Get the smart wallet's initial balance
+      const initialBalance = await publicClient.getBalance({
         address: smartWalletAddress,
       });
       setVerificationStatus((prev) => [
         ...prev,
-        `✓ Smart wallet balance: ${formatEther(balance)} ETH`,
+        `✓ Initial smart wallet balance: ${initialBalance.toString()} wei (${formatEther(
+          initialBalance
+        )} ETH)`,
+      ]);
+
+      // Get the relayer's initial balance
+      const initialRelayerBalance = await publicClient.getBalance({
+        address: relayerWallet.account.address,
+      });
+      setVerificationStatus((prev) => [
+        ...prev,
+        `✓ Initial relayer balance: ${initialRelayerBalance.toString()} wei (${formatEther(
+          initialRelayerBalance
+        )} ETH)`,
       ]);
 
       // Test execution by sending ETH back to the relayer
-      const execHash = await relayerWallet.writeContract({
-        address: smartWalletAddress,
-        abi: [
-          {
-            type: "function",
-            name: "execute",
-            inputs: [
-              { name: "target", type: "address" },
-              { name: "value", type: "uint256" },
-              { name: "data", type: "bytes" },
-            ],
-            outputs: [],
-            stateMutability: "payable",
-          },
-        ],
-        functionName: "execute",
-        args: [relayerWallet.account.address, TEST_RETURN, EMPTY_CALLDATA],
-      });
+      let execHash: `0x${string}`;
+      if (useAnvil && "writeContract" in relayerWallet) {
+        execHash = await relayerWallet.writeContract({
+          address: smartWalletAddress,
+          abi: [
+            {
+              type: "function",
+              name: "execute",
+              inputs: [
+                { name: "target", type: "address" },
+                { name: "value", type: "uint256" },
+                { name: "data", type: "bytes" },
+              ],
+              outputs: [],
+              stateMutability: "payable",
+            },
+          ],
+          functionName: "execute",
+          args: [relayerWallet.account.address, initialBalance, EMPTY_CALLDATA],
+        });
+      } else {
+        // Use API for Odyssey
+        const execResponse = await fetch("/api/relay", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            operation: "execute",
+            targetAddress: smartWalletAddress,
+            args: {
+              target: relayerWallet.account.address,
+              value: initialBalance.toString(),
+              data: EMPTY_CALLDATA,
+            },
+          }),
+        });
+
+        if (!execResponse.ok) {
+          const error = await execResponse.json();
+          throw new Error(error.error || "Failed to execute test transaction");
+        }
+        execHash = (await execResponse.json()).hash;
+      }
 
       setVerificationStatus((prev) => [
         ...prev,
         `✓ Test transaction executed: ${execHash}`,
       ]);
 
-      // Verify the balance changed
-      const balanceAfter = await publicClient.getBalance({
+      // Wait for the transaction to be mined
+      await publicClient.waitForTransactionReceipt({ hash: execHash });
+
+      // Get the final balances
+      const finalWalletBalance = await publicClient.getBalance({
         address: smartWalletAddress,
       });
+      const finalRelayerBalance = await publicClient.getBalance({
+        address: relayerWallet.account.address,
+      });
+
       setVerificationStatus((prev) => [
         ...prev,
-        `✓ Smart wallet balance after: ${formatEther(balanceAfter)} ETH`,
-        `✓ Successfully transferred ${formatEther(
-          TEST_RETURN
-        )} ETH back to relayer`,
+        `✓ Final smart wallet balance: ${finalWalletBalance.toString()} wei (${formatEther(
+          finalWalletBalance
+        )} ETH)`,
+        `✓ Final relayer balance: ${finalRelayerBalance.toString()} wei (${formatEther(
+          finalRelayerBalance
+        )} ETH)`,
+        `✓ Transferred ${initialBalance.toString()} wei (${formatEther(
+          initialBalance
+        )} ETH) back to relayer`,
       ]);
     } catch (error: any) {
       console.error("Verification failed:", error);
