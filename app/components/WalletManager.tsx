@@ -18,9 +18,10 @@ import {
 } from "../lib/wallet-utils";
 import { EIP7702ProxyAddresses } from "../lib/abi/EIP7702Proxy";
 import { odysseyTestnet } from "../lib/chains";
-
-// Test values
-const INITIAL_FUNDING = BigInt(1); // 1 wei
+import {
+  createWebAuthnCredential,
+  type P256Credential,
+} from "viem/account-abstraction";
 
 interface WalletManagerProps {
   useAnvil: boolean;
@@ -32,6 +33,7 @@ interface WalletManagerProps {
   ) => void;
   resetKey: number;
   onAccountCreated: (account: ExtendedAccount | null) => void;
+  onPasskeyStored: (passkey: P256Credential) => void;
 }
 
 function formatError(error: any): string {
@@ -51,17 +53,49 @@ function formatError(error: any): string {
   return errorMessage;
 }
 
+function formatExplorerLink(hash: string, useAnvil: boolean): string | null {
+  if (useAnvil) {
+    return null;
+  }
+  return `${odysseyTestnet.blockExplorers.default.url}/tx/${hash}`;
+}
+
+function TransactionHash({
+  hash,
+  useAnvil,
+}: {
+  hash: string;
+  useAnvil: boolean;
+}) {
+  const link = formatExplorerLink(hash, useAnvil);
+  if (!link) {
+    return <span className="font-mono">{hash}</span>;
+  }
+  return (
+    <a
+      href={link}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="text-blue-400 hover:text-blue-300 underline font-mono"
+    >
+      {hash}
+    </a>
+  );
+}
+
 export function WalletManager({
   useAnvil,
   onWalletCreated,
   onUpgradeComplete,
   resetKey,
   onAccountCreated,
+  onPasskeyStored,
 }: WalletManagerProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [account, setAccount] = useState<ExtendedAccount | null>(null);
   const [isUpgraded, setIsUpgraded] = useState(false);
+  const [status, setStatus] = useState<string>("");
 
   // Reset internal state when resetKey changes
   useEffect(() => {
@@ -69,6 +103,7 @@ export function WalletManager({
     setError(null);
     setAccount(null);
     setIsUpgraded(false);
+    setStatus("");
   }, [resetKey]);
 
   const handleCreateEOA = async () => {
@@ -78,6 +113,7 @@ export function WalletManager({
       const newAccount = await createEOAWallet();
       setAccount(newAccount);
       onWalletCreated(newAccount.address);
+      onAccountCreated(newAccount);
     } catch (error) {
       console.error("Error creating EOA:", error);
       setError("Failed to create EOA wallet");
@@ -92,6 +128,7 @@ export function WalletManager({
     try {
       setLoading(true);
       setError(null);
+      setStatus("Starting wallet upgrade process...");
 
       console.log("\n=== Starting wallet upgrade process ===");
       console.log("EOA address:", account.address);
@@ -118,7 +155,7 @@ export function WalletManager({
       console.log("Proxy template address:", proxyAddress);
 
       // Create the authorization signature
-      console.log("\nSigning authorization object...");
+      setStatus("Creating authorization signature...");
       const authorization = await userWallet.signAuthorization({
         contractAddress: proxyAddress,
         sponsor: useAnvil
@@ -128,13 +165,21 @@ export function WalletManager({
           : (process.env.NEXT_PUBLIC_RELAYER_ADDRESS as `0x${string}`),
       });
 
-      // Create initialization args with the relayer as the new owner
-      console.log("\nPreparing initialization data and signature...");
-      const initArgs = encodeInitializeArgs(
+      // Create a new passkey
+      setStatus("Creating new passkey...");
+      const passkey = await createWebAuthnCredential({
+        name: "Smart Wallet Owner",
+      });
+      onPasskeyStored(passkey);
+
+      // Create initialization args with both relayer and passkey as owners
+      setStatus("Preparing initialization data and signature...");
+      const initArgs = encodeInitializeArgs([
         useAnvil
           ? ((await getRelayerWalletClient(true)).account.address as Hex)
-          : (process.env.NEXT_PUBLIC_RELAYER_ADDRESS as Hex)
-      );
+          : (process.env.NEXT_PUBLIC_RELAYER_ADDRESS as Hex),
+        passkey,
+      ]);
       const initHashForSig = createInitializeHash(proxyAddress, initArgs);
       const signature = await signInitialization(userWallet, initHashForSig);
 
@@ -144,6 +189,7 @@ export function WalletManager({
       if (useAnvil) {
         // Use local relayer for Anvil
         const relayerWallet = await getRelayerWalletClient(true);
+        setStatus("Submitting upgrade transaction...");
         upgradeHash = await relayerWallet.sendTransaction({
           to: account.address as `0x${string}`,
           value: BigInt(1),
@@ -151,7 +197,7 @@ export function WalletManager({
         });
 
         // For Anvil, use the API for initialization
-        console.log("\nSubmitting initialization transaction...");
+        setStatus("Submitting initialization transaction...");
         const initResponse = await fetch("/api/relay", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -177,7 +223,7 @@ export function WalletManager({
         console.log("✓ Initialization transaction submitted:", initTxHash);
       } else {
         // Use API for Odyssey
-        console.log("\nSubmitting upgrade transaction...");
+        setStatus("Submitting upgrade transaction...");
         const upgradeResponse = await fetch("/api/relay", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -200,6 +246,7 @@ export function WalletManager({
         console.log("✓ Upgrade transaction submitted:", upgradeHash);
 
         // Wait for the upgrade transaction to be mined
+        setStatus("Waiting for upgrade transaction confirmation...");
         const upgradeReceipt = await publicClient.waitForTransactionReceipt({
           hash: upgradeHash,
         });
@@ -209,7 +256,7 @@ export function WalletManager({
         console.log("✓ Upgrade transaction confirmed");
 
         // Submit initialization transaction
-        console.log("\nSubmitting initialization transaction...");
+        setStatus("Submitting initialization transaction...");
         const initResponse = await fetch("/api/relay", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -236,6 +283,7 @@ export function WalletManager({
       }
 
       // Check the transaction receipts
+      setStatus("Waiting for transaction confirmations...");
       const [upgradeReceipt, initReceipt] = await Promise.all([
         publicClient.waitForTransactionReceipt({ hash: upgradeHash }),
         publicClient.waitForTransactionReceipt({ hash: initTxHash }),
@@ -251,13 +299,14 @@ export function WalletManager({
       }
 
       // Check if the code was deployed
-      console.log("\nVerifying deployment...");
+      setStatus("Verifying deployment...");
       const code = await publicClient.getCode({ address: account.address });
 
       if (code && code !== "0x") {
         console.log("✓ Code deployed successfully");
         console.log("\n=== Wallet upgrade complete ===");
         console.log("Smart wallet address:", account.address);
+        setStatus("Wallet upgrade complete! ✅");
         onUpgradeComplete(
           account.address as `0x${string}`,
           upgradeHash,
@@ -296,6 +345,26 @@ export function WalletManager({
         >
           {loading ? "Upgrading..." : "Upgrade EOA to Smart Wallet"}
         </button>
+      )}
+
+      {status && (
+        <div className="mt-2 text-sm text-gray-300">
+          {status.split("\n").map((msg, i) => {
+            if (
+              msg.includes("Transaction submitted:") ||
+              msg.includes("Transaction hash:")
+            ) {
+              const hash = msg.split(":")[1].trim();
+              return (
+                <div key={i}>
+                  Transaction submitted:{" "}
+                  <TransactionHash hash={hash} useAnvil={useAnvil} />
+                </div>
+              );
+            }
+            return <div key={i}>{msg}</div>;
+          })}
+        </div>
       )}
 
       {error && (

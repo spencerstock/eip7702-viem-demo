@@ -2,9 +2,10 @@
 
 import { useState } from "react";
 import { WalletManager } from "./components/WalletManager";
-import { VerificationPanel } from "./components/VerificationPanel";
+import { PasskeyVerification } from "./components/PasskeyVerification";
 import { type ExtendedAccount } from "./lib/wallet-utils";
 import { odysseyTestnet } from "./lib/chains";
+import { type P256Credential } from "viem/account-abstraction";
 
 export default function Home() {
   const [resetKey, setResetKey] = useState(0);
@@ -13,6 +14,7 @@ export default function Home() {
   const [initTxHash, setInitTxHash] = useState<string | null>(null);
   const [isUpgradeConfirmed, setIsUpgradeConfirmed] = useState(false);
   const [account, setAccount] = useState<ExtendedAccount | null>(null);
+  const [passkey, setPasskey] = useState<P256Credential | null>(null);
 
   const handleReset = () => {
     setWalletAddress(null);
@@ -20,6 +22,7 @@ export default function Home() {
     setInitTxHash(null);
     setIsUpgradeConfirmed(false);
     setAccount(null);
+    setPasskey(null);
     setResetKey((prev) => prev + 1);
   };
 
@@ -44,6 +47,7 @@ export default function Home() {
         onUpgradeComplete={handleUpgradeComplete}
         resetKey={resetKey}
         onAccountCreated={setAccount}
+        onPasskeyStored={setPasskey}
       />
 
       {walletAddress && (
@@ -87,9 +91,10 @@ export default function Home() {
         </div>
       )}
 
-      {isUpgradeConfirmed && walletAddress && (
-        <VerificationPanel
+      {isUpgradeConfirmed && walletAddress && passkey && (
+        <PasskeyVerification
           smartWalletAddress={walletAddress as `0x${string}`}
+          passkey={passkey}
           useAnvil={false}
         />
       )}
