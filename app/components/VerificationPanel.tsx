@@ -23,10 +23,11 @@ const TEST_RETURN = BigInt(1); // 1 wei
 const EMPTY_CALLDATA = "0x" as const;
 const REQUIRED_DEPOSIT = BigInt(1e16); // 0.01 ETH should be enough for gas costs
 
-interface VerificationPanelProps {
+type VerificationPanelProps = {
   smartWalletAddress: `0x${string}`;
   useAnvil: boolean;
-}
+  onStatus?: (status: string) => void;
+};
 
 function formatExplorerLink(hash: string, useAnvil: boolean): string | null {
   if (useAnvil) {
@@ -61,6 +62,7 @@ function TransactionHash({
 export function VerificationPanel({
   smartWalletAddress,
   useAnvil,
+  onStatus,
 }: VerificationPanelProps) {
   const [verificationStatus, setVerificationStatus] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
@@ -71,6 +73,9 @@ export function VerificationPanel({
 
   const addStatus = (status: string) => {
     setVerificationStatus((prev) => [...prev, status]);
+    if (onStatus) {
+      onStatus(status);
+    }
   };
 
   const handleVerify = useCallback(async () => {

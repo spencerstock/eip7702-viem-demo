@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   parseEther,
   createPublicClient,
@@ -19,6 +19,10 @@ import {
 import { EIP7702ProxyAddresses } from "../lib/abi/EIP7702Proxy";
 import { odysseyTestnet } from "../lib/chains";
 import { VerificationPanel } from "./VerificationPanel";
+import { PasskeyRegistration } from "./PasskeyRegistration";
+import type { P256Credential } from "viem/account-abstraction";
+import { PasskeyVerification } from "./PasskeyVerification";
+import { type Address } from "viem";
 
 // Test values
 const INITIAL_FUNDING = BigInt(1); // 1 wei
@@ -52,77 +56,104 @@ function formatError(error: any): string {
   return errorMessage;
 }
 
-export function WalletManager({ useAnvil }: { useAnvil: boolean }) {
-  // TEMPORARY: Skip wallet creation flow and use hardcoded address
-  const [smartWalletAddress] = useState<`0x${string}`>(
-    "0xdDfA044880512F1D5859d8F9B0d08838480DA02A"
+function formatExplorerLink(hash: string, useAnvil: boolean): string | null {
+  if (useAnvil) {
+    return null;
+  }
+  return `${odysseyTestnet.blockExplorers.default.url}/tx/${hash}`;
+}
+
+function TransactionHash({
+  hash,
+  useAnvil,
+}: {
+  hash: string;
+  useAnvil: boolean;
+}) {
+  const link = formatExplorerLink(hash, useAnvil);
+  if (!link) {
+    return <span className="font-mono">{hash}</span>;
+  }
+  return (
+    <a
+      href={link}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="text-blue-400 hover:text-blue-300 underline font-mono"
+    >
+      {hash}
+    </a>
   );
-  const [initialized] = useState(true);
+}
 
-  // Comment out unused states for now
-  /*
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [initialized, setInitialized] = useState(false);
-  const [smartWalletAddress, setSmartWalletAddress] = useState<`0x${string}` | null>(null);
-  const [eoaAddress, setEoaAddress] = useState<`0x${string}` | null>(null);
-  */
+export function WalletManager({ useAnvil = false }: WalletManagerProps) {
+  const [status, setStatus] = useState<string[]>([]);
+  const [passkey, setPasskey] = useState<P256Credential | null>(null);
+  const [smartWalletAddress] = useState<`0x${string}`>(
+    "0xdDfA044880512F1D5859d8F9B0d08838480DA02A" as `0x${string}`
+  );
 
-  // Comment out unused handlers for now
-  /*
-  const handleCreateEOA = useCallback(async () => {
-    // ... existing code ...
-  }, [useAnvil]);
+  const addStatus = useCallback((newStatus: string) => {
+    setStatus((prev) => [...prev, newStatus]);
+  }, []);
 
-  const handleUpgradeWallet = useCallback(async () => {
-    // ... existing code ...
-  }, [eoaAddress, useAnvil]);
-  */
+  const handleCredentialCreated = useCallback(
+    (credential: P256Credential) => {
+      setPasskey(credential);
+      addStatus("Passkey stored for future use");
+    },
+    [addStatus]
+  );
 
   return (
-    <div className="max-w-2xl mx-auto p-4">
-      <h1 className="text-2xl font-bold mb-4">Wallet Manager</h1>
-
-      {/* Comment out creation flow UI
-      {!eoaAddress ? (
-        <button
-          onClick={handleCreateEOA}
-          disabled={loading}
-          className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50"
-        >
-          {loading ? "Creating..." : "Create EOA"}
-        </button>
-      ) : !smartWalletAddress ? (
-        <div>
-          <p className="mb-4">EOA Address: {eoaAddress}</p>
-          <button
-            onClick={handleUpgradeWallet}
-            disabled={loading}
-            className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50"
-          >
-            {loading ? "Upgrading..." : "Upgrade to Smart Wallet"}
-          </button>
-        </div>
-      ) : null}
-      */}
-
-      {smartWalletAddress && initialized && (
-        <div>
-          <p className="mb-4">Smart Wallet Address: {smartWalletAddress}</p>
+    <div className="flex flex-col gap-8">
+      {smartWalletAddress && (
+        <>
           <VerificationPanel
             smartWalletAddress={smartWalletAddress}
             useAnvil={useAnvil}
+            onStatus={addStatus}
           />
-        </div>
+          <PasskeyRegistration
+            smartWalletAddress={smartWalletAddress}
+            useAnvil={useAnvil}
+            onStatus={addStatus}
+            onCredentialCreated={handleCredentialCreated}
+          />
+          {passkey && (
+            <PasskeyVerification
+              smartWalletAddress={smartWalletAddress}
+              passkey={passkey}
+              useAnvil={useAnvil}
+              onStatus={addStatus}
+            />
+          )}
+          <div className="bg-gray-900 p-4 rounded">
+            <h2 className="text-green-400 font-bold mb-2">Status Updates</h2>
+            <div className="flex flex-col gap-1">
+              {status.map((msg, i) => {
+                if (
+                  msg.includes("Transaction submitted:") ||
+                  msg.includes("Transaction hash:")
+                ) {
+                  const hash = msg.split(":")[1].trim();
+                  return (
+                    <div key={i} className="text-green-400 font-mono">
+                      Transaction submitted:{" "}
+                      <TransactionHash hash={hash} useAnvil={useAnvil} />
+                    </div>
+                  );
+                }
+                return (
+                  <div key={i} className="text-green-400 font-mono">
+                    {msg}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </>
       )}
-
-      {/* Comment out error display for now
-      {error && (
-        <div className="mt-4 p-4 bg-red-100 text-red-700 rounded">
-          Error: {error}
-        </div>
-      )}
-      */}
     </div>
   );
 }

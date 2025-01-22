@@ -507,3 +507,45 @@ export async function withdrawEntryPointDeposit({
     throw error;
   }
 }
+
+// Helper function to serialize BigInt values in an object
+export function serializeBigInts(obj: any): any {
+  if (obj === null || obj === undefined) {
+    return obj;
+  }
+  if (typeof obj === "bigint") {
+    return obj.toString();
+  }
+  if (Array.isArray(obj)) {
+    return obj.map(serializeBigInts);
+  }
+  if (typeof obj === "object") {
+    const result: any = {};
+    for (const [key, value] of Object.entries(obj)) {
+      result[key] = serializeBigInts(value);
+    }
+    return result;
+  }
+  return obj;
+}
+
+// Helper function to deserialize BigInt values in an object
+export function deserializeBigInts(obj: any): any {
+  if (obj === null || obj === undefined) {
+    return obj;
+  }
+  if (typeof obj === "string" && /^\d+$/.test(obj)) {
+    return BigInt(obj);
+  }
+  if (Array.isArray(obj)) {
+    return obj.map(deserializeBigInts);
+  }
+  if (typeof obj === "object") {
+    const result: any = {};
+    for (const [key, value] of Object.entries(obj)) {
+      result[key] = deserializeBigInts(value);
+    }
+    return result;
+  }
+  return obj;
+}
