@@ -14,8 +14,8 @@ The Odyssey testnet already has the necessary contracts deployed. You'll just ne
 1. Clone and install the repository:
 
 ```bash
-git clone <your-repo-url>
-cd <your-repo-name>
+git clone git@github.com:amiecorso/eip7702-viem-demo.git
+cd eip7702-viem-demo
 npm install
 ```
 
@@ -33,7 +33,7 @@ RELAYER_PRIVATE_KEY=your_private_key_here
 NEXT_PUBLIC_RELAYER_ADDRESS=your_public_address_here
 ```
 
-3. Fund your relayer wallet with some Odyssey testnet ETH
+3. Fund your relayer wallet with some [Odyssey testnet](https://hub.conduit.xyz/odyssey) ETH. Sepolia bridge [here](https://odyssey-fba0638ec5f46615.testnets.rollbridge.app/).
 
 4. Start the development server:
 
