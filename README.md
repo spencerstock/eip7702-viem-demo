@@ -46,10 +46,10 @@ npm run dev
 1. Click "Create new EOA Wallet" to generate a new wallet
 2. Click "Upgrade EOA to Smart Wallet" to:
    - Sign and submit an authorization for the proxy contract while sending the EOA 1 wei
-   - Initialize the smart wallet by adding the relayer as a new owner of the smart wallet
-3. Click "Verify Ownership" to:
-   - Confirm the relayer is the owner
-   - Test executing transactions by the new relayer owner via the `execute` function of the smart wallet
+   - Initialize the smart wallet by adding a passkey as a new owner of the smart wallet
+3. Click "Transact using passkey" to:
+   - Confirm the passkey is an owner
+   - Test controlling the smart wallet via the new passkey owner and user operations
 
 ## Network Details
 
