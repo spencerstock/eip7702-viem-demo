@@ -51,45 +51,56 @@ export default function Home() {
       />
 
       {walletAddress && (
-        <div className="mt-4 w-full max-w-5xl mx-auto">
-          <div className="bg-gray-800 text-green-500 p-4 rounded-lg font-mono text-left">
-            <span className="text-gray-400 mr-2">New Wallet Address:</span>
-            <div className="break-all">{walletAddress}</div>
+        <div className="mb-4 w-full">
+          <div className="p-4 bg-gray-800 rounded-lg w-full max-w-5xl mx-auto">
+            <div className="flex items-center gap-2">
+              <span className="text-green-500">✓</span>
+              <span className="text-gray-400">New Wallet Address:</span>
+              <div className="break-all text-green-500 font-mono">
+                {walletAddress}
+              </div>
+            </div>
           </div>
         </div>
       )}
 
       {upgradeTxHash && (
-        <div className="mt-4 w-full max-w-5xl mx-auto">
-          <div className="bg-gray-800 text-green-500 p-4 rounded-lg font-mono text-left">
-            <span className="text-gray-400 mr-2">Upgrade Transaction:</span>
-            <div className="break-all">
-              <a
-                href={`${odysseyTestnet.blockExplorers.default.url}/tx/${upgradeTxHash}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-blue-400 hover:text-blue-300 underline"
-              >
-                {upgradeTxHash}
-              </a>
+        <div className="mb-4 w-full">
+          <div className="p-4 bg-gray-800 rounded-lg w-full max-w-5xl mx-auto">
+            <div className="flex items-center gap-2">
+              <span className="text-green-500">✓</span>
+              <span className="text-gray-400">Upgrade Transaction:</span>
+              <div className="break-all">
+                <a
+                  href={`${odysseyTestnet.blockExplorers.default.url}/tx/${upgradeTxHash}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-400 hover:text-blue-300 underline font-mono"
+                >
+                  {upgradeTxHash}
+                </a>
+              </div>
             </div>
           </div>
         </div>
       )}
 
       {initTxHash && (
-        <div className="mt-4 w-full max-w-5xl mx-auto">
-          <div className="bg-gray-800 text-green-500 p-4 rounded-lg font-mono text-left">
-            <span className="text-gray-400 mr-2">Initialize Transaction:</span>
-            <div className="break-all">
-              <a
-                href={`${odysseyTestnet.blockExplorers.default.url}/tx/${initTxHash}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-blue-400 hover:text-blue-300 underline"
-              >
-                {initTxHash}
-              </a>
+        <div className="mb-4 w-full">
+          <div className="p-4 bg-gray-800 rounded-lg w-full max-w-5xl mx-auto">
+            <div className="flex items-center gap-2">
+              <span className="text-green-500">✓</span>
+              <span className="text-gray-400">Initialize Transaction:</span>
+              <div className="break-all">
+                <a
+                  href={`${odysseyTestnet.blockExplorers.default.url}/tx/${initTxHash}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-400 hover:text-blue-300 underline font-mono"
+                >
+                  {initTxHash}
+                </a>
+              </div>
             </div>
           </div>
         </div>
