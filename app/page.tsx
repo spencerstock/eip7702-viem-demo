@@ -12,6 +12,7 @@ export default function Home() {
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
   const [upgradeTxHash, setUpgradeTxHash] = useState<string | null>(null);
   const [initTxHash, setInitTxHash] = useState<string | null>(null);
+  const [bytecode, setBytecode] = useState<string | null>(null);
   const [isUpgradeConfirmed, setIsUpgradeConfirmed] = useState(false);
   const [account, setAccount] = useState<ExtendedAccount | null>(null);
   const [passkey, setPasskey] = useState<P256Credential | null>(null);
@@ -20,6 +21,7 @@ export default function Home() {
     setWalletAddress(null);
     setUpgradeTxHash(null);
     setInitTxHash(null);
+    setBytecode(null);
     setIsUpgradeConfirmed(false);
     setAccount(null);
     setPasskey(null);
@@ -29,12 +31,14 @@ export default function Home() {
   const handleUpgradeComplete = async (
     address: `0x${string}`,
     upgradeHash: string,
-    initHash: string
+    initHash: string,
+    code: string
   ) => {
     setUpgradeTxHash(upgradeHash);
     if (initHash) {
       await new Promise((resolve) => setTimeout(resolve, 1000));
       setInitTxHash(initHash);
+      setBytecode(code);
       setIsUpgradeConfirmed(true);
     }
   };
@@ -119,6 +123,20 @@ export default function Home() {
                 >
                   {initTxHash}
                 </a>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {bytecode && (
+        <div className="mb-4 w-full">
+          <div className="p-4 bg-gray-800 rounded-lg w-full max-w-5xl mx-auto">
+            <div className="flex items-center gap-2">
+              <span className="text-green-500">✓</span>
+              <span className="text-gray-400">Smart Contract Bytecode:</span>
+              <div className="break-all text-green-500 font-mono">
+                {bytecode}
               </div>
             </div>
           </div>

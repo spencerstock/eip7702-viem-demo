@@ -202,7 +202,7 @@ export function PasskeyVerification({
         const { txHash: depositTxHash } = await depositResponse.json();
         console.log("Deposit transaction hash:", depositTxHash);
         updateStep(0, {
-          status: "Waiting for gas pre-funding transaction...",
+          status: "Waiting for EntryPoint pre-funding transaction...",
           isComplete: false,
           txHash: depositTxHash,
         });
@@ -217,7 +217,7 @@ export function PasskeyVerification({
         console.log("New deposit balance:", newDeposit.toString(), "wei");
 
         updateStep(0, {
-          status: "Gas pre-funding complete",
+          status: "EntryPoint pre-funding complete",
           isComplete: true,
           txHash: depositTxHash,
         });
@@ -253,8 +253,7 @@ export function PasskeyVerification({
       });
 
       addStep({
-        status:
-          "Creating and signing userOp to transfer 1 wei back to relayer...",
+        status: "Creating and signing userOp to transfer 1 wei to relayer...",
         isComplete: false,
       });
 
