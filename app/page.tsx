@@ -51,42 +51,46 @@ export default function Home() {
       />
 
       {walletAddress && (
-        <div className="mt-4">
-          <div className="bg-gray-900 text-green-400 p-4 rounded font-mono text-left">
+        <div className="mt-4 w-full max-w-5xl mx-auto">
+          <div className="bg-gray-800 text-green-500 p-4 rounded-lg font-mono text-left">
             <span className="text-gray-400 mr-2">New Wallet Address:</span>
-            {walletAddress}
+            <div className="break-all">{walletAddress}</div>
           </div>
         </div>
       )}
 
       {upgradeTxHash && (
-        <div className="mt-4">
-          <div className="bg-gray-900 text-green-400 p-4 rounded font-mono text-left">
+        <div className="mt-4 w-full max-w-5xl mx-auto">
+          <div className="bg-gray-800 text-green-500 p-4 rounded-lg font-mono text-left">
             <span className="text-gray-400 mr-2">Upgrade Transaction:</span>
-            <a
-              href={`${odysseyTestnet.blockExplorers.default.url}/tx/${upgradeTxHash}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-blue-400 hover:text-blue-300 underline"
-            >
-              {upgradeTxHash}
-            </a>
+            <div className="break-all">
+              <a
+                href={`${odysseyTestnet.blockExplorers.default.url}/tx/${upgradeTxHash}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-400 hover:text-blue-300 underline"
+              >
+                {upgradeTxHash}
+              </a>
+            </div>
           </div>
         </div>
       )}
 
       {initTxHash && (
-        <div className="mt-4">
-          <div className="bg-gray-900 text-green-400 p-4 rounded font-mono text-left">
+        <div className="mt-4 w-full max-w-5xl mx-auto">
+          <div className="bg-gray-800 text-green-500 p-4 rounded-lg font-mono text-left">
             <span className="text-gray-400 mr-2">Initialize Transaction:</span>
-            <a
-              href={`${odysseyTestnet.blockExplorers.default.url}/tx/${initTxHash}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-blue-400 hover:text-blue-300 underline"
-            >
-              {initTxHash}
-            </a>
+            <div className="break-all">
+              <a
+                href={`${odysseyTestnet.blockExplorers.default.url}/tx/${initTxHash}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-400 hover:text-blue-300 underline"
+              >
+                {initTxHash}
+              </a>
+            </div>
           </div>
         </div>
       )}

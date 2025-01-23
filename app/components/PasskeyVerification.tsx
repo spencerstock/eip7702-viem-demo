@@ -66,7 +66,7 @@ function StepDisplay({
   useAnvil: boolean;
 }) {
   return (
-    <div className="mb-4 p-4 bg-gray-800 rounded-lg w-full">
+    <div className="mb-4 p-4 bg-gray-800 rounded-lg w-full max-w-5xl mx-auto">
       <div className="flex items-center gap-2">
         {step.isComplete ? (
           <span className="text-green-500">✓</span>
@@ -80,13 +80,17 @@ function StepDisplay({
       {step.txHash && (
         <div className="mt-2 ml-6">
           <span className="text-gray-400 mr-2">Transaction:</span>
-          <TransactionLink hash={step.txHash} useAnvil={useAnvil} />
+          <div className="break-all">
+            <TransactionLink hash={step.txHash} useAnvil={useAnvil} />
+          </div>
         </div>
       )}
       {step.userOpHash && (
         <div className="mt-2 ml-6">
           <span className="text-gray-400 mr-2">UserOperation:</span>
-          <code className="font-mono text-green-400">{step.userOpHash}</code>
+          <div className="break-all">
+            <code className="font-mono text-green-400">{step.userOpHash}</code>
+          </div>
         </div>
       )}
       {step.error && (
@@ -388,7 +392,7 @@ export function PasskeyVerification({
   }, [smartWalletAddress, passkey, useAnvil, chain]);
 
   return (
-    <div className="flex flex-col items-center w-full max-w-3xl mx-auto mt-8">
+    <div className="flex flex-col items-center w-full max-w-5xl mx-auto mt-8">
       {!isVerified && (
         <button
           onClick={handleVerify}
