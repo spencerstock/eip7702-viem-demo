@@ -1,6 +1,6 @@
 # EIP-7702 Wallet Demo
 
-A simple demo application showcasing EIP-7702 wallet creation and upgrades using viem. This demo allows you to create an EOA wallet, upgrade it to a smart wallet using EIP-7702, and verify the upgrade was successful.
+A simple demo application showcasing EIP-7702 wallet creation and upgrades using viem. This demo allows you to create an EOA wallet, upgrade it to a `CoinbaseSmartWallet` using EIP-7702, and verify the upgrade was successful.
 
 ## Prerequisites
 
