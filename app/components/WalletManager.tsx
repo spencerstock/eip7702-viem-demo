@@ -55,29 +55,6 @@ function formatExplorerLink(hash: string, useAnvil: boolean): string | null {
   return `${odysseyTestnet.blockExplorers.default.url}/tx/${hash}`;
 }
 
-function TransactionHash({
-  hash,
-  useAnvil,
-}: {
-  hash: string;
-  useAnvil: boolean;
-}) {
-  const link = formatExplorerLink(hash, useAnvil);
-  if (!link) {
-    return <span className="font-mono">{hash}</span>;
-  }
-  return (
-    <a
-      href={link}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="text-blue-400 hover:text-blue-300 underline font-mono"
-    >
-      {hash}
-    </a>
-  );
-}
-
 export function WalletManager({
   useAnvil,
   onWalletCreated,
@@ -160,94 +137,12 @@ export function WalletManager({
           : (process.env.NEXT_PUBLIC_RELAYER_ADDRESS as `0x${string}`),
       });
 
-      // Create a new passkey
-      setStatus("Creating new passkey...");
-      const passkey = await createWebAuthnCredential({
-        name: "Smart Wallet Owner",
-      });
-      onPasskeyStored(passkey);
-
-      // Create initialization args with both relayer and passkey as owners
-      // (Relayer owner allows for retrieval of unused entrypoint deposit)
-      setStatus("Preparing initialization data and signature...");
-      const initArgs = encodeInitializeArgs([
-        useAnvil
-          ? ((await getRelayerWalletClient(true)).account.address as Hex)
-          : (process.env.NEXT_PUBLIC_RELAYER_ADDRESS as Hex),
-        passkey,
-      ]);
-      const initHashForSig = createInitializeHash(proxyAddress, initArgs);
-      const signature = await signInitialization(userWallet, initHashForSig);
-
       let upgradeHash: `0x${string}`;
       let initTxHash: `0x${string}`;
 
       if (useAnvil) {
-        // Use local relayer for Anvil
-        const relayerWallet = await getRelayerWalletClient(true);
-        setStatus("Submitting upgrade transaction...");
-        upgradeHash = await relayerWallet.sendTransaction({
-          to: account.address as `0x${string}`,
-          value: BigInt(1),
-          authorizationList: [authorization],
-        });
-
-        // Wait for upgrade transaction to be mined
-        setStatus("Waiting for upgrade transaction confirmation...");
-        const upgradeReceipt = await publicClient.waitForTransactionReceipt({
-          hash: upgradeHash,
-        });
-        if (upgradeReceipt.status !== "success") {
-          throw new Error("Upgrade transaction failed");
-        }
-        console.log("✓ Upgrade transaction confirmed");
-        onUpgradeComplete(
-          account.address as `0x${string}`,
-          upgradeHash,
-          "",
-          ""
-        );
-
-        // For Anvil, use the API for initialization
-        setStatus("Submitting initialization transaction...");
-        const initResponse = await fetch("/api/relay", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(
-            {
-              operation: "initialize",
-              targetAddress: account.address,
-              initArgs,
-              initSignature: signature,
-              value: "0",
-            },
-            (_, value) => (typeof value === "bigint" ? value.toString() : value)
-          ),
-        });
-
-        if (!initResponse.ok) {
-          const error = await initResponse.json();
-          throw new Error(
-            error.error || "Failed to relay initialize transaction"
-          );
-        }
-        initTxHash = (await initResponse.json()).hash;
-        console.log("✓ Initialization transaction submitted:", initTxHash);
-
-        // Wait for init transaction to be mined
-        setStatus("✓ Waiting for initialization transaction confirmation...");
-        const initReceipt = await publicClient.waitForTransactionReceipt({
-          hash: initTxHash,
-        });
-        if (initReceipt.status !== "success") {
-          throw new Error("Initialization transaction failed");
-        }
-        console.log("✓ Initialization transaction confirmed");
-        onUpgradeComplete(
-          account.address as `0x${string}`,
-          upgradeHash,
-          initTxHash,
-          ""
+        throw new Error(
+          "Anvil is not currently supported until we figure out how to deploy the EntryPoint contract"
         );
       } else {
         // Use API for Odyssey
@@ -288,6 +183,25 @@ export function WalletManager({
           "",
           ""
         );
+
+        // Create a new passkey
+        setStatus("Creating new passkey...");
+        const passkey = await createWebAuthnCredential({
+          name: "Smart Wallet Owner",
+        });
+        onPasskeyStored(passkey);
+
+        // Create initialization args with both relayer and passkey as owners
+        // (Relayer owner allows for retrieval of unused entrypoint deposit)
+        setStatus("Preparing initialization data and signature...");
+        const initArgs = encodeInitializeArgs([
+          useAnvil
+            ? ((await getRelayerWalletClient(true)).account.address as Hex)
+            : (process.env.NEXT_PUBLIC_RELAYER_ADDRESS as Hex),
+          passkey,
+        ]);
+        const initHashForSig = createInitializeHash(proxyAddress, initArgs);
+        const signature = await signInitialization(userWallet, initHashForSig);
 
         // Submit initialization transaction
         setStatus("Submitting initialization transaction...");

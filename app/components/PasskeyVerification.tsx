@@ -87,7 +87,7 @@ function StepDisplay({
       )}
       {step.userOpHash && (
         <div className="mt-2 ml-6">
-          <span className="text-gray-400 mr-2">UserOperation:</span>
+          <span className="text-gray-400 mr-2">UserOperation hash:</span>
           <div className="break-all">
             <code className="font-mono text-green-400">{step.userOpHash}</code>
           </div>
@@ -129,7 +129,7 @@ export function PasskeyVerification({
       setVerifying(true);
       setSteps([]);
 
-      // Step 1: Create WebAuthn account and prepare client
+      // Step 1: Create WebAuthn account and verify ownership
       console.log("Creating WebAuthn account from passkey...");
       const webAuthnAccount = toWebAuthnAccount({ credential: passkey });
       console.log("WebAuthn account public key:", webAuthnAccount.publicKey);
@@ -137,6 +137,48 @@ export function PasskeyVerification({
       const publicClient = createPublicClient({
         chain,
         transport: http(),
+      });
+
+      // Verify passkey ownership
+      addStep({
+        status: "Verifying passkey ownership...",
+        isComplete: false,
+      });
+
+      const isOwner = await publicClient.readContract({
+        address: smartWalletAddress,
+        abi: [
+          {
+            type: "function",
+            name: "isOwnerPublicKey",
+            inputs: [
+              { name: "x", type: "bytes32" },
+              { name: "y", type: "bytes32" },
+            ],
+            outputs: [{ type: "bool" }],
+            stateMutability: "view",
+          },
+        ],
+        functionName: "isOwnerPublicKey",
+        args: [
+          `0x${webAuthnAccount.publicKey.slice(2, 66)}` as `0x${string}`,
+          `0x${webAuthnAccount.publicKey.slice(66)}` as `0x${string}`,
+        ],
+      });
+
+      if (!isOwner) {
+        updateStep(0, {
+          status: "Passkey ownership verification failed",
+          isComplete: true,
+          error:
+            "This passkey is not registered as an owner of the smart wallet",
+        });
+        return;
+      }
+
+      updateStep(0, {
+        status: "✓ Passkey verified as owner",
+        isComplete: true,
       });
 
       // Check current EntryPoint deposit
@@ -195,13 +237,13 @@ export function PasskeyVerification({
 
         if (!depositResponse.ok) {
           const error = await depositResponse.text();
-          updateStep(0, { error, isComplete: true });
+          updateStep(1, { error, isComplete: true });
           return;
         }
 
         const { txHash: depositTxHash } = await depositResponse.json();
         console.log("Deposit transaction hash:", depositTxHash);
-        updateStep(0, {
+        updateStep(1, {
           status: "Waiting for EntryPoint pre-funding transaction...",
           isComplete: false,
           txHash: depositTxHash,
@@ -216,7 +258,7 @@ export function PasskeyVerification({
         })) as bigint;
         console.log("New deposit balance:", newDeposit.toString(), "wei");
 
-        updateStep(0, {
+        updateStep(1, {
           status: "EntryPoint pre-funding complete",
           isComplete: true,
           txHash: depositTxHash,
@@ -293,7 +335,7 @@ export function PasskeyVerification({
       const userOp = { ...unsignedUserOp, signature } as UserOperation;
       console.log("UserOperation prepared:", serializeBigInts(userOp));
 
-      updateStep(1, {
+      updateStep(2, {
         status: "UserOperation created and signed",
         isComplete: true,
       });
@@ -315,12 +357,12 @@ export function PasskeyVerification({
 
       if (!submitResponse.ok) {
         const error = await submitResponse.text();
-        updateStep(2, { error, isComplete: true });
+        updateStep(3, { error, isComplete: true });
         return;
       }
 
       const { txHash, userOpHash } = await submitResponse.json();
-      updateStep(2, {
+      updateStep(3, {
         status: "Waiting for userOperation transaction...",
         isComplete: false,
         txHash,
@@ -328,7 +370,7 @@ export function PasskeyVerification({
       });
 
       await waitForTransaction(txHash, chain);
-      updateStep(2, {
+      updateStep(3, {
         status: "UserOperation submitted successfully",
         isComplete: true,
         txHash,
@@ -352,26 +394,26 @@ export function PasskeyVerification({
 
       if (!retrieveResponse.ok) {
         const error = await retrieveResponse.text();
-        updateStep(3, { error, isComplete: true });
+        updateStep(4, { error, isComplete: true });
         return;
       }
 
       const { txHash: retrieveTxHash } = await retrieveResponse.json();
       if (retrieveTxHash) {
-        updateStep(3, {
+        updateStep(4, {
           status: "Waiting for withdrawal transaction...",
           isComplete: false,
           txHash: retrieveTxHash,
         });
 
         await waitForTransaction(retrieveTxHash, chain);
-        updateStep(3, {
+        updateStep(4, {
           status: "Successfully retrieved unused deposit",
           isComplete: true,
           txHash: retrieveTxHash,
         });
       } else {
-        updateStep(3, {
+        updateStep(4, {
           status: "No unused deposit to retrieve",
           isComplete: true,
         });
@@ -398,7 +440,7 @@ export function PasskeyVerification({
           disabled={verifying}
           className="px-6 py-3 text-lg font-semibold text-white bg-blue-500 rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed mb-8 w-64"
         >
-          {verifying ? "Verifying..." : "Verify with Passkey"}
+          {verifying ? "Submitting userOp..." : "Transact using passkey"}
         </button>
       )}
 
