@@ -35,10 +35,10 @@ export default function Home() {
     code: string
   ) => {
     setUpgradeTxHash(upgradeHash);
+    setBytecode(code);
     if (initHash) {
       await new Promise((resolve) => setTimeout(resolve, 1000));
       setInitTxHash(initHash);
-      setBytecode(code);
       setIsUpgradeConfirmed(true);
     }
   };
@@ -107,7 +107,19 @@ export default function Home() {
           </div>
         </div>
       )}
-
+      {bytecode && (
+        <div className="mb-4 w-full">
+          <div className="p-4 bg-gray-800 rounded-lg w-full max-w-5xl mx-auto">
+            <div className="flex items-center gap-2">
+              <span className="text-green-500">✓</span>
+              <span className="text-gray-400">Smart Contract Bytecode:</span>
+              <div className="break-all text-green-500 font-mono">
+                {bytecode}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       {initTxHash && (
         <div className="mb-4 w-full">
           <div className="p-4 bg-gray-800 rounded-lg w-full max-w-5xl mx-auto">
@@ -123,20 +135,6 @@ export default function Home() {
                 >
                   {initTxHash}
                 </a>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {bytecode && (
-        <div className="mb-4 w-full">
-          <div className="p-4 bg-gray-800 rounded-lg w-full max-w-5xl mx-auto">
-            <div className="flex items-center gap-2">
-              <span className="text-green-500">✓</span>
-              <span className="text-gray-400">Smart Contract Bytecode:</span>
-              <div className="break-all text-green-500 font-mono">
-                {bytecode}
               </div>
             </div>
           </div>
