@@ -7,7 +7,62 @@ A simple demo application showcasing EIP-7702 wallet creation and upgrades using
 - Node.js and npm installed
 - [Foundry](https://book.getfoundry.sh/getting-started/installation) installed for Anvil testing
 
+## Testing with Odyssey Testnet
+
+The Odyssey testnet already has the necessary contracts deployed. You'll just need to:
+
+1. Clone and install the repository:
+
+```bash
+git clone <your-repo-url>
+cd <your-repo-name>
+npm install
+```
+
+2. Configure your environment:
+
+```bash
+cp .env.example .env
+```
+
+Add your relayer wallet credentials to `.env`:
+
+```bash
+# Required
+RELAYER_PRIVATE_KEY=your_private_key_here
+NEXT_PUBLIC_RELAYER_ADDRESS=your_public_address_here
+```
+
+3. Fund your relayer wallet with some Odyssey testnet ETH
+
+4. Start the development server:
+
+```bash
+npm run dev
+```
+
+## Usage
+
+1. Click "Create new EOA Wallet" to generate a new wallet
+2. Click "Upgrade EOA to Smart Wallet" to:
+   - Sign and submit an authorization for the proxy contract while sending the EOA 1 wei
+   - Initialize the smart wallet by adding the relayer as a new owner of the smart wallet
+3. Click "Verify Ownership" to:
+   - Confirm the relayer is the owner
+   - Test executing transactions by the new relayer owner via the `execute` function of the smart wallet
+
+## Network Details
+
+### Odyssey Testnet
+
+- RPC URL: https://odyssey.ithaca.xyz
+- Chain ID: 911867
+- Block Explorer: https://odyssey-explorer.ithaca.xyz
+- EIP-7702 Proxy Template: 0x5ee57314eFc8D76B9084BC6759A2152084392e18
+
 ## Testing with Anvil (Local Development)
+
+> ℹ️ Testing with Anvil requires a locally deployed version of the EntryPoint contract and is not immediately working with the below instructions
 
 ### 1. Network Setup
 
@@ -66,59 +121,6 @@ npm run dev
 ```
 
 The demo will use Anvil's pre-funded accounts for testing, so no additional configuration is needed.
-
-## Testing with Odyssey Testnet
-
-The Odyssey testnet already has the necessary contracts deployed. You'll just need to:
-
-1. Clone and install the repository:
-
-```bash
-git clone <your-repo-url>
-cd <your-repo-name>
-npm install
-```
-
-2. Configure your environment:
-
-```bash
-cp .env.example .env
-```
-
-Add your relayer wallet credentials to `.env`:
-
-```bash
-# Required
-RELAYER_PRIVATE_KEY=your_private_key_here
-NEXT_PUBLIC_RELAYER_ADDRESS=your_public_address_here
-```
-
-3. Fund your relayer wallet with some Odyssey testnet ETH
-
-4. Start the development server:
-
-```bash
-npm run dev
-```
-
-## Usage
-
-1. Click "Create new EOA Wallet" to generate a new wallet
-2. Click "Upgrade EOA to Smart Wallet" to:
-   - Sign and submit an authorization for the proxy contract while sending the EOA 1 wei
-   - Initialize the smart wallet by adding the relayer as a new owner of the smart wallet
-3. Click "Verify Ownership" to:
-   - Confirm the relayer is the owner
-   - Test executing transactions by the new relayer owner via the `execute` function of the smart wallet
-
-## Network Details
-
-### Odyssey Testnet
-
-- RPC URL: https://odyssey.ithaca.xyz
-- Chain ID: 911867
-- Block Explorer: https://odyssey-explorer.ithaca.xyz
-- EIP-7702 Proxy Template: 0x5ee57314eFc8D76B9084BC6759A2152084392e18
 
 ### Local Anvil
 
