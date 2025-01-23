@@ -51,43 +51,43 @@ export default function Home() {
       />
 
       {walletAddress && (
-        <div className="mt-4 text-center">
-          <p className="mb-2">New Wallet Address:</p>
-          <code className="bg-gray-900 text-green-400 p-2 rounded font-mono">
+        <div className="mt-4">
+          <div className="bg-gray-900 text-green-400 p-4 rounded font-mono text-left">
+            <span className="text-gray-400 mr-2">New Wallet Address:</span>
             {walletAddress}
-          </code>
+          </div>
         </div>
       )}
 
       {upgradeTxHash && (
-        <div className="mt-4 text-center">
-          <p className="mb-2">Upgrade Transaction:</p>
-          <a
-            href={`${odysseyTestnet.blockExplorers.default.url}/tx/${upgradeTxHash}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-blue-500 hover:underline"
-          >
-            <code className="bg-gray-900 text-green-400 p-2 rounded font-mono">
+        <div className="mt-4">
+          <div className="bg-gray-900 text-green-400 p-4 rounded font-mono text-left">
+            <span className="text-gray-400 mr-2">Upgrade Transaction:</span>
+            <a
+              href={`${odysseyTestnet.blockExplorers.default.url}/tx/${upgradeTxHash}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-400 hover:text-blue-300 underline"
+            >
               {upgradeTxHash}
-            </code>
-          </a>
+            </a>
+          </div>
         </div>
       )}
 
       {initTxHash && (
-        <div className="mt-4 text-center">
-          <p className="mb-2">Initialize Transaction:</p>
-          <a
-            href={`${odysseyTestnet.blockExplorers.default.url}/tx/${initTxHash}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-blue-500 hover:underline"
-          >
-            <code className="bg-gray-900 text-green-400 p-2 rounded font-mono">
+        <div className="mt-4">
+          <div className="bg-gray-900 text-green-400 p-4 rounded font-mono text-left">
+            <span className="text-gray-400 mr-2">Initialize Transaction:</span>
+            <a
+              href={`${odysseyTestnet.blockExplorers.default.url}/tx/${initTxHash}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-400 hover:text-blue-300 underline"
+            >
               {initTxHash}
-            </code>
-          </a>
+            </a>
+          </div>
         </div>
       )}
 

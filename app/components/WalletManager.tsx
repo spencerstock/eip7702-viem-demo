@@ -1,11 +1,5 @@
 import { useState, useEffect } from "react";
-import {
-  parseEther,
-  createPublicClient,
-  http,
-  type Hex,
-  createWalletClient,
-} from "viem";
+import { createPublicClient, http, type Hex } from "viem";
 import {
   createEOAWallet,
   getRelayerWalletClient,
@@ -128,7 +122,7 @@ export function WalletManager({
     try {
       setLoading(true);
       setError(null);
-      setStatus("Starting wallet upgrade process...");
+      setStatus("✓ Starting wallet upgrade process...");
 
       console.log("\n=== Starting wallet upgrade process ===");
       console.log("EOA address:", account.address);
@@ -155,7 +149,7 @@ export function WalletManager({
       console.log("Proxy template address:", proxyAddress);
 
       // Create the authorization signature
-      setStatus("Creating authorization signature...");
+      setStatus("✓ Creating authorization signature...");
       const authorization = await userWallet.signAuthorization({
         contractAddress: proxyAddress,
         sponsor: useAnvil
@@ -166,14 +160,15 @@ export function WalletManager({
       });
 
       // Create a new passkey
-      setStatus("Creating new passkey...");
+      setStatus("✓ Creating new passkey...");
       const passkey = await createWebAuthnCredential({
         name: "Smart Wallet Owner",
       });
       onPasskeyStored(passkey);
 
       // Create initialization args with both relayer and passkey as owners
-      setStatus("Preparing initialization data and signature...");
+      // (Relayer owner allows for retrieval of unused entrypoint deposit)
+      setStatus("✓ Preparing initialization data and signature...");
       const initArgs = encodeInitializeArgs([
         useAnvil
           ? ((await getRelayerWalletClient(true)).account.address as Hex)
@@ -189,7 +184,7 @@ export function WalletManager({
       if (useAnvil) {
         // Use local relayer for Anvil
         const relayerWallet = await getRelayerWalletClient(true);
-        setStatus("Submitting upgrade transaction...");
+        setStatus("✓ Submitting upgrade transaction...");
         upgradeHash = await relayerWallet.sendTransaction({
           to: account.address as `0x${string}`,
           value: BigInt(1),
@@ -197,7 +192,7 @@ export function WalletManager({
         });
 
         // For Anvil, use the API for initialization
-        setStatus("Submitting initialization transaction...");
+        setStatus("✓ Submitting initialization transaction...");
         const initResponse = await fetch("/api/relay", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -223,7 +218,7 @@ export function WalletManager({
         console.log("✓ Initialization transaction submitted:", initTxHash);
       } else {
         // Use API for Odyssey
-        setStatus("Submitting upgrade transaction...");
+        setStatus("✓ Submitting upgrade transaction...");
         const upgradeResponse = await fetch("/api/relay", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -246,7 +241,7 @@ export function WalletManager({
         console.log("✓ Upgrade transaction submitted:", upgradeHash);
 
         // Wait for the upgrade transaction to be mined
-        setStatus("Waiting for upgrade transaction confirmation...");
+        setStatus("✓ Waiting for upgrade transaction confirmation...");
         const upgradeReceipt = await publicClient.waitForTransactionReceipt({
           hash: upgradeHash,
         });
@@ -256,7 +251,7 @@ export function WalletManager({
         console.log("✓ Upgrade transaction confirmed");
 
         // Submit initialization transaction
-        setStatus("Submitting initialization transaction...");
+        setStatus("✓ Submitting initialization transaction...");
         const initResponse = await fetch("/api/relay", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -283,7 +278,7 @@ export function WalletManager({
       }
 
       // Check the transaction receipts
-      setStatus("Waiting for transaction confirmations...");
+      setStatus("✓ Waiting for transaction confirmations...");
       const [upgradeReceipt, initReceipt] = await Promise.all([
         publicClient.waitForTransactionReceipt({ hash: upgradeHash }),
         publicClient.waitForTransactionReceipt({ hash: initTxHash }),
@@ -299,14 +294,14 @@ export function WalletManager({
       }
 
       // Check if the code was deployed
-      setStatus("Verifying deployment...");
+      setStatus("✓ Verifying deployment...");
       const code = await publicClient.getCode({ address: account.address });
 
       if (code && code !== "0x") {
         console.log("✓ Code deployed successfully");
         console.log("\n=== Wallet upgrade complete ===");
         console.log("Smart wallet address:", account.address);
-        setStatus("Wallet upgrade complete! ✅");
+        setStatus("✓ Wallet upgrade complete! ✅");
         onUpgradeComplete(
           account.address as `0x${string}`,
           upgradeHash,
@@ -348,28 +343,12 @@ export function WalletManager({
       )}
 
       {status && (
-        <div className="mt-2 text-sm text-gray-300">
-          {status.split("\n").map((msg, i) => {
-            if (
-              msg.includes("Transaction submitted:") ||
-              msg.includes("Transaction hash:")
-            ) {
-              const hash = msg.split(":")[1].trim();
-              return (
-                <div key={i}>
-                  Transaction submitted:{" "}
-                  <TransactionHash hash={hash} useAnvil={useAnvil} />
-                </div>
-              );
-            }
-            return <div key={i}>{msg}</div>;
-          })}
-        </div>
-      )}
-
-      {error && (
-        <div className="mt-4 text-center text-red-500">
-          <pre className="whitespace-pre-wrap text-left text-sm">{error}</pre>
+        <div className="mt-4 text-center">
+          <p className="mb-2">Status:</p>
+          <div className="bg-gray-900 text-green-400 p-4 rounded font-mono text-left">
+            {status}
+            {error && <div className="text-red-400">❌ Error: {error}</div>}
+          </div>
         </div>
       )}
     </div>
