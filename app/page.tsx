@@ -27,13 +27,16 @@ export default function Home() {
   };
 
   const handleUpgradeComplete = async (
+    address: `0x${string}`,
     upgradeHash: string,
     initHash: string
   ) => {
     setUpgradeTxHash(upgradeHash);
-    setInitTxHash(initHash);
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    setIsUpgradeConfirmed(true);
+    if (initHash) {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      setInitTxHash(initHash);
+      setIsUpgradeConfirmed(true);
+    }
   };
 
   return (

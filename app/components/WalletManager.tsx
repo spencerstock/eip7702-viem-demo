@@ -191,6 +191,17 @@ export function WalletManager({
           authorizationList: [authorization],
         });
 
+        // Wait for upgrade transaction to be mined
+        setStatus("✓ Waiting for upgrade transaction confirmation...");
+        const upgradeReceipt = await publicClient.waitForTransactionReceipt({
+          hash: upgradeHash,
+        });
+        if (upgradeReceipt.status !== "success") {
+          throw new Error("Upgrade transaction failed");
+        }
+        console.log("✓ Upgrade transaction confirmed");
+        onUpgradeComplete(account.address as `0x${string}`, upgradeHash, "");
+
         // For Anvil, use the API for initialization
         setStatus("✓ Submitting initialization transaction...");
         const initResponse = await fetch("/api/relay", {
@@ -216,6 +227,21 @@ export function WalletManager({
         }
         initTxHash = (await initResponse.json()).hash;
         console.log("✓ Initialization transaction submitted:", initTxHash);
+
+        // Wait for init transaction to be mined
+        setStatus("✓ Waiting for initialization transaction confirmation...");
+        const initReceipt = await publicClient.waitForTransactionReceipt({
+          hash: initTxHash,
+        });
+        if (initReceipt.status !== "success") {
+          throw new Error("Initialization transaction failed");
+        }
+        console.log("✓ Initialization transaction confirmed");
+        onUpgradeComplete(
+          account.address as `0x${string}`,
+          upgradeHash,
+          initTxHash
+        );
       } else {
         // Use API for Odyssey
         setStatus("✓ Submitting upgrade transaction...");
@@ -249,6 +275,7 @@ export function WalletManager({
           throw new Error("Upgrade transaction failed");
         }
         console.log("✓ Upgrade transaction confirmed");
+        onUpgradeComplete(account.address as `0x${string}`, upgradeHash, "");
 
         // Submit initialization transaction
         setStatus("✓ Submitting initialization transaction...");
@@ -275,22 +302,21 @@ export function WalletManager({
         }
         initTxHash = (await initResponse.json()).hash;
         console.log("✓ Initialization transaction submitted:", initTxHash);
-      }
 
-      // Check the transaction receipts
-      setStatus("✓ Waiting for transaction confirmations...");
-      const [upgradeReceipt, initReceipt] = await Promise.all([
-        publicClient.waitForTransactionReceipt({ hash: upgradeHash }),
-        publicClient.waitForTransactionReceipt({ hash: initTxHash }),
-      ]);
-
-      if (
-        upgradeReceipt.status === "success" &&
-        initReceipt.status === "success"
-      ) {
-        console.log("✓ All transactions confirmed");
-      } else {
-        throw new Error("Transaction verification failed");
+        // Wait for init transaction to be mined
+        setStatus("✓ Waiting for initialization transaction confirmation...");
+        const initReceipt = await publicClient.waitForTransactionReceipt({
+          hash: initTxHash,
+        });
+        if (initReceipt.status !== "success") {
+          throw new Error("Initialization transaction failed");
+        }
+        console.log("✓ Initialization transaction confirmed");
+        onUpgradeComplete(
+          account.address as `0x${string}`,
+          upgradeHash,
+          initTxHash
+        );
       }
 
       // Check if the code was deployed
@@ -302,11 +328,6 @@ export function WalletManager({
         console.log("\n=== Wallet upgrade complete ===");
         console.log("Smart wallet address:", account.address);
         setStatus("✓ EOA has been upgraded to a Coinbase Smart Wallet!");
-        onUpgradeComplete(
-          account.address as `0x${string}`,
-          upgradeHash,
-          initTxHash
-        );
         setIsUpgraded(true);
       } else {
         console.log("✗ Code deployment failed");
