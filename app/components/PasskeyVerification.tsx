@@ -411,7 +411,7 @@ export function PasskeyVerification({
 
       {isVerified && steps.every((step) => step.isComplete && !step.error) && (
         <div className="mt-8 text-center text-green-500 font-semibold text-lg">
-          Upgrade complete, passkey owner verified! ✅
+          ✅ Successfully submitted a userOp with passkey owner!
         </div>
       )}
     </div>

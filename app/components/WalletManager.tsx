@@ -301,7 +301,7 @@ export function WalletManager({
         console.log("✓ Code deployed successfully");
         console.log("\n=== Wallet upgrade complete ===");
         console.log("Smart wallet address:", account.address);
-        setStatus("✓ Wallet upgrade complete! ✅");
+        setStatus("✓ EOA has been upgraded to a Coinbase Smart Wallet!");
         onUpgradeComplete(
           account.address as `0x${string}`,
           upgradeHash,

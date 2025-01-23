@@ -55,21 +55,23 @@ export default function Home() {
         </p>
       </div>
 
-      <WalletManager
-        useAnvil={false}
-        onWalletCreated={setWalletAddress}
-        onUpgradeComplete={handleUpgradeComplete}
-        resetKey={resetKey}
-        onAccountCreated={setAccount}
-        onPasskeyStored={setPasskey}
-      />
+      <div className="mb-8">
+        <WalletManager
+          useAnvil={false}
+          onWalletCreated={setWalletAddress}
+          onUpgradeComplete={handleUpgradeComplete}
+          resetKey={resetKey}
+          onAccountCreated={setAccount}
+          onPasskeyStored={setPasskey}
+        />
+      </div>
 
       {walletAddress && (
         <div className="mb-4 w-full">
           <div className="p-4 bg-gray-800 rounded-lg w-full max-w-5xl mx-auto">
             <div className="flex items-center gap-2">
               <span className="text-green-500">✓</span>
-              <span className="text-gray-400">New Wallet Address:</span>
+              <span className="text-gray-400">New EOA Address:</span>
               <div className="break-all text-green-500 font-mono">
                 {walletAddress}
               </div>
