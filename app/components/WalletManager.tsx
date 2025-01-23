@@ -321,12 +321,12 @@ export function WalletManager({
   };
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col items-center gap-4">
       {!account && (
         <button
           onClick={handleCreateEOA}
           disabled={loading}
-          className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50"
+          className="w-64 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50"
         >
           {loading ? "Creating..." : "Create new EOA Wallet"}
         </button>
@@ -336,14 +336,14 @@ export function WalletManager({
         <button
           onClick={handleUpgradeWallet}
           disabled={loading}
-          className="px-4 py-2 bg-purple-500 text-white rounded hover:bg-purple-600 disabled:opacity-50"
+          className="w-64 px-4 py-2 bg-purple-500 text-white rounded hover:bg-purple-600 disabled:opacity-50"
         >
           {loading ? "Upgrading..." : "Upgrade EOA to Smart Wallet"}
         </button>
       )}
 
       {status && (
-        <div className="mt-4 text-center">
+        <div className="w-full text-center">
           <p className="mb-2">Status:</p>
           <div className="bg-gray-900 text-green-400 p-4 rounded font-mono text-left">
             {status}
