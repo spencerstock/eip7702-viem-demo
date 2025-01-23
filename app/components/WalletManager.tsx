@@ -1,11 +1,5 @@
 import { useState, useEffect } from "react";
-import {
-  parseEther,
-  createPublicClient,
-  http,
-  type Hex,
-  createWalletClient,
-} from "viem";
+import { createPublicClient, http, type Hex } from "viem";
 import {
   createEOAWallet,
   getRelayerWalletClient,
@@ -29,7 +23,8 @@ interface WalletManagerProps {
   onUpgradeComplete: (
     address: `0x${string}`,
     upgradeHash: string,
-    initHash: string
+    initHash: string,
+    code: string
   ) => void;
   resetKey: number;
   onAccountCreated: (account: ExtendedAccount | null) => void;
@@ -173,6 +168,7 @@ export function WalletManager({
       onPasskeyStored(passkey);
 
       // Create initialization args with both relayer and passkey as owners
+      // (Relayer owner allows for retrieval of unused entrypoint deposit)
       setStatus("Preparing initialization data and signature...");
       const initArgs = encodeInitializeArgs([
         useAnvil
@@ -195,6 +191,22 @@ export function WalletManager({
           value: BigInt(1),
           authorizationList: [authorization],
         });
+
+        // Wait for upgrade transaction to be mined
+        setStatus("Waiting for upgrade transaction confirmation...");
+        const upgradeReceipt = await publicClient.waitForTransactionReceipt({
+          hash: upgradeHash,
+        });
+        if (upgradeReceipt.status !== "success") {
+          throw new Error("Upgrade transaction failed");
+        }
+        console.log("✓ Upgrade transaction confirmed");
+        onUpgradeComplete(
+          account.address as `0x${string}`,
+          upgradeHash,
+          "",
+          ""
+        );
 
         // For Anvil, use the API for initialization
         setStatus("Submitting initialization transaction...");
@@ -221,9 +233,25 @@ export function WalletManager({
         }
         initTxHash = (await initResponse.json()).hash;
         console.log("✓ Initialization transaction submitted:", initTxHash);
+
+        // Wait for init transaction to be mined
+        setStatus("✓ Waiting for initialization transaction confirmation...");
+        const initReceipt = await publicClient.waitForTransactionReceipt({
+          hash: initTxHash,
+        });
+        if (initReceipt.status !== "success") {
+          throw new Error("Initialization transaction failed");
+        }
+        console.log("✓ Initialization transaction confirmed");
+        onUpgradeComplete(
+          account.address as `0x${string}`,
+          upgradeHash,
+          initTxHash,
+          ""
+        );
       } else {
         // Use API for Odyssey
-        setStatus("Submitting upgrade transaction...");
+        setStatus("✓ Submitting upgrade transaction...");
         const upgradeResponse = await fetch("/api/relay", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -246,7 +274,7 @@ export function WalletManager({
         console.log("✓ Upgrade transaction submitted:", upgradeHash);
 
         // Wait for the upgrade transaction to be mined
-        setStatus("Waiting for upgrade transaction confirmation...");
+        setStatus("✓ Waiting for upgrade transaction confirmation...");
         const upgradeReceipt = await publicClient.waitForTransactionReceipt({
           hash: upgradeHash,
         });
@@ -254,6 +282,12 @@ export function WalletManager({
           throw new Error("Upgrade transaction failed");
         }
         console.log("✓ Upgrade transaction confirmed");
+        onUpgradeComplete(
+          account.address as `0x${string}`,
+          upgradeHash,
+          "",
+          ""
+        );
 
         // Submit initialization transaction
         setStatus("Submitting initialization transaction...");
@@ -280,37 +314,38 @@ export function WalletManager({
         }
         initTxHash = (await initResponse.json()).hash;
         console.log("✓ Initialization transaction submitted:", initTxHash);
-      }
 
-      // Check the transaction receipts
-      setStatus("Waiting for transaction confirmations...");
-      const [upgradeReceipt, initReceipt] = await Promise.all([
-        publicClient.waitForTransactionReceipt({ hash: upgradeHash }),
-        publicClient.waitForTransactionReceipt({ hash: initTxHash }),
-      ]);
-
-      if (
-        upgradeReceipt.status === "success" &&
-        initReceipt.status === "success"
-      ) {
-        console.log("✓ All transactions confirmed");
-      } else {
-        throw new Error("Transaction verification failed");
+        // Wait for init transaction to be mined
+        setStatus("✓ Waiting for initialization transaction confirmation...");
+        const initReceipt = await publicClient.waitForTransactionReceipt({
+          hash: initTxHash,
+        });
+        if (initReceipt.status !== "success") {
+          throw new Error("Initialization transaction failed");
+        }
+        console.log("✓ Initialization transaction confirmed");
+        onUpgradeComplete(
+          account.address as `0x${string}`,
+          upgradeHash,
+          initTxHash,
+          ""
+        );
       }
 
       // Check if the code was deployed
-      setStatus("Verifying deployment...");
+      setStatus("✓ Verifying deployment...");
       const code = await publicClient.getCode({ address: account.address });
 
       if (code && code !== "0x") {
         console.log("✓ Code deployed successfully");
         console.log("\n=== Wallet upgrade complete ===");
         console.log("Smart wallet address:", account.address);
-        setStatus("Wallet upgrade complete! ✅");
+        setStatus("✓ EOA has been upgraded to a Coinbase Smart Wallet!");
         onUpgradeComplete(
           account.address as `0x${string}`,
           upgradeHash,
-          initTxHash
+          initTxHash,
+          code
         );
         setIsUpgraded(true);
       } else {
@@ -326,12 +361,12 @@ export function WalletManager({
   };
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col items-center gap-4">
       {!account && (
         <button
           onClick={handleCreateEOA}
           disabled={loading}
-          className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50"
+          className="w-64 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50"
         >
           {loading ? "Creating..." : "Create new EOA Wallet"}
         </button>
@@ -341,35 +376,19 @@ export function WalletManager({
         <button
           onClick={handleUpgradeWallet}
           disabled={loading}
-          className="px-4 py-2 bg-purple-500 text-white rounded hover:bg-purple-600 disabled:opacity-50"
+          className="w-64 px-4 py-2 bg-purple-500 text-white rounded hover:bg-purple-600 disabled:opacity-50"
         >
           {loading ? "Upgrading..." : "Upgrade EOA to Smart Wallet"}
         </button>
       )}
 
       {status && (
-        <div className="mt-2 text-sm text-gray-300">
-          {status.split("\n").map((msg, i) => {
-            if (
-              msg.includes("Transaction submitted:") ||
-              msg.includes("Transaction hash:")
-            ) {
-              const hash = msg.split(":")[1].trim();
-              return (
-                <div key={i}>
-                  Transaction submitted:{" "}
-                  <TransactionHash hash={hash} useAnvil={useAnvil} />
-                </div>
-              );
-            }
-            return <div key={i}>{msg}</div>;
-          })}
-        </div>
-      )}
-
-      {error && (
-        <div className="mt-4 text-center text-red-500">
-          <pre className="whitespace-pre-wrap text-left text-sm">{error}</pre>
+        <div className="w-full text-center">
+          <p className="mb-2">Status:</p>
+          <div className="bg-gray-900 text-green-400 p-4 rounded font-mono text-left">
+            {status}
+            {error && <div className="text-red-400">❌ Error: {error}</div>}
+          </div>
         </div>
       )}
     </div>
