@@ -107,6 +107,7 @@ export function PasskeyVerification({
 }: Props) {
   const [verifying, setVerifying] = useState(false);
   const [steps, setSteps] = useState<VerificationStep[]>([]);
+  const [isVerified, setIsVerified] = useState(false);
   const chain = useAnvil ? localAnvil : odysseyTestnet;
 
   const updateStep = (index: number, updates: Partial<VerificationStep>) => {
@@ -372,6 +373,7 @@ export function PasskeyVerification({
           isComplete: true,
         });
       }
+      setIsVerified(true);
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
@@ -387,19 +389,27 @@ export function PasskeyVerification({
 
   return (
     <div className="flex flex-col items-center w-full max-w-3xl mx-auto mt-8">
-      <button
-        onClick={handleVerify}
-        disabled={verifying}
-        className="px-6 py-3 text-lg font-semibold text-white bg-blue-500 rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed mb-8 w-64"
-      >
-        {verifying ? "Verifying..." : "Verify with Passkey"}
-      </button>
+      {!isVerified && (
+        <button
+          onClick={handleVerify}
+          disabled={verifying}
+          className="px-6 py-3 text-lg font-semibold text-white bg-blue-500 rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed mb-8 w-64"
+        >
+          {verifying ? "Verifying..." : "Verify with Passkey"}
+        </button>
+      )}
 
       <div className="w-full space-y-4">
         {steps.map((step, index) => (
           <StepDisplay key={index} step={step} useAnvil={useAnvil} />
         ))}
       </div>
+
+      {isVerified && steps.every((step) => step.isComplete && !step.error) && (
+        <div className="mt-8 text-center text-green-500 font-semibold text-lg">
+          Upgrade complete, passkey owner verified! ✅
+        </div>
+      )}
     </div>
   );
 }
