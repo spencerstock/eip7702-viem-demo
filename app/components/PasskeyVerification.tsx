@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { type Address, type Hex, createPublicClient, http } from "viem";
+import { type Address, type Hash, createPublicClient, http } from "viem";
 import {
   type P256Credential,
   toWebAuthnAccount,
@@ -11,34 +11,44 @@ import { localAnvil } from "../lib/wallet-utils";
 import { EntryPointAddress, EntryPointAbi } from "../lib/abi/EntryPoint";
 import { serializeBigInts } from "../lib/smart-account";
 
+type VerificationStep = {
+  status: string;
+  isComplete: boolean;
+  txHash?: Hash;
+  userOpHash?: Hash;
+  error?: string;
+};
+
 type Props = {
   smartWalletAddress: Address;
   passkey: P256Credential;
-  onStatus?: (status: string) => void;
   useAnvil?: boolean;
 };
 
-function formatExplorerLink(hash: string, useAnvil: boolean): string | null {
-  if (useAnvil) {
-    return null;
-  }
-  return `${odysseyTestnet.blockExplorers.default.url}/tx/${hash}`;
-}
+const waitForTransaction = async (
+  hash: Hash,
+  chain: typeof odysseyTestnet | typeof localAnvil
+) => {
+  const publicClient = createPublicClient({
+    chain,
+    transport: http(),
+  });
+  await publicClient.waitForTransactionReceipt({ hash });
+};
 
-function TransactionHash({
+function TransactionLink({
   hash,
   useAnvil,
 }: {
-  hash: string;
+  hash: Hash;
   useAnvil: boolean;
 }) {
-  const link = formatExplorerLink(hash, useAnvil);
-  if (!link) {
-    return <span className="font-mono">{hash}</span>;
+  if (useAnvil) {
+    return <code className="font-mono text-green-400">{hash}</code>;
   }
   return (
     <a
-      href={link}
+      href={`${odysseyTestnet.blockExplorers.default.url}/tx/${hash}`}
       target="_blank"
       rel="noopener noreferrer"
       className="text-blue-400 hover:text-blue-300 underline font-mono"
@@ -48,34 +58,170 @@ function TransactionHash({
   );
 }
 
+function StepDisplay({
+  step,
+  useAnvil,
+}: {
+  step: VerificationStep;
+  useAnvil: boolean;
+}) {
+  return (
+    <div className="mb-4 p-4 bg-gray-800 rounded-lg w-full">
+      <div className="flex items-center gap-2">
+        {step.isComplete ? (
+          <span className="text-green-500">✓</span>
+        ) : (
+          <div className="w-4 h-4 border-2 border-t-blue-500 border-r-blue-500 border-b-blue-500 border-l-transparent rounded-full animate-spin" />
+        )}
+        <span className={step.isComplete ? "text-green-500" : "text-blue-500"}>
+          {step.status}
+        </span>
+      </div>
+      {step.txHash && (
+        <div className="mt-2 ml-6">
+          <span className="text-gray-400 mr-2">Transaction:</span>
+          <TransactionLink hash={step.txHash} useAnvil={useAnvil} />
+        </div>
+      )}
+      {step.userOpHash && (
+        <div className="mt-2 ml-6">
+          <span className="text-gray-400 mr-2">UserOperation:</span>
+          <code className="font-mono text-green-400">{step.userOpHash}</code>
+        </div>
+      )}
+      {step.error && (
+        <div className="mt-2 ml-6 text-red-400">
+          <span>Error: {step.error}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const MIN_DEPOSIT = BigInt("100000000000000000"); // 0.1 ETH
+
 export function PasskeyVerification({
   smartWalletAddress,
   passkey,
-  onStatus,
   useAnvil = false,
 }: Props) {
   const [verifying, setVerifying] = useState(false);
-  const [isOwner, setIsOwner] = useState<boolean | null>(null);
-  const [verificationStatus, setVerificationStatus] = useState<string[]>([]);
+  const [steps, setSteps] = useState<VerificationStep[]>([]);
+  const chain = useAnvil ? localAnvil : odysseyTestnet;
+
+  const updateStep = (index: number, updates: Partial<VerificationStep>) => {
+    setSteps((current) =>
+      current.map((step, i) => (i === index ? { ...step, ...updates } : step))
+    );
+  };
+
+  const addStep = (step: VerificationStep) => {
+    setSteps((current) => [...current, step]);
+  };
 
   const handleVerify = useCallback(async () => {
     try {
       setVerifying(true);
-      setVerificationStatus([]);
-      onStatus?.("Creating WebAuthn account from passkey...");
+      setSteps([]);
 
-      // Create WebAuthn account from the stored credential
-      const webAuthnAccount = toWebAuthnAccount({
-        credential: passkey,
-      });
-      // Create public client
+      // Step 1: Create WebAuthn account and prepare client
+      console.log("Creating WebAuthn account from passkey...");
+      const webAuthnAccount = toWebAuthnAccount({ credential: passkey });
+      console.log("WebAuthn account public key:", webAuthnAccount.publicKey);
+
       const publicClient = createPublicClient({
-        chain: useAnvil ? localAnvil : odysseyTestnet,
+        chain,
         transport: http(),
       });
 
-      // Get the owner index for this passkey
-      onStatus?.("Getting owner index...");
+      // Check current EntryPoint deposit
+      console.log("Checking current EntryPoint deposit...");
+      const currentDeposit = (await publicClient.readContract({
+        address: EntryPointAddress,
+        abi: EntryPointAbi,
+        functionName: "balanceOf",
+        args: [smartWalletAddress],
+      })) as bigint;
+      console.log("Current deposit:", currentDeposit.toString(), "wei");
+
+      // Check smart account balance
+      console.log("Checking smart account balance...");
+      const accountBalance = await publicClient.getBalance({
+        address: smartWalletAddress,
+      });
+      console.log("Smart account balance:", accountBalance.toString(), "wei");
+
+      if (accountBalance === BigInt(0)) {
+        console.log(
+          "Smart account has no balance, sending 1 wei from relayer..."
+        );
+        const response = await fetch("/api/relay", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            operation: "fund",
+            targetAddress: smartWalletAddress,
+            value: "1",
+            useAnvil,
+          }),
+        });
+        if (!response.ok) {
+          throw new Error("Failed to fund smart account");
+        }
+        const { hash } = await response.json();
+        console.log("Funding transaction hash:", hash);
+        await waitForTransaction(hash as Hash, chain);
+        console.log("Smart account funded with 1 wei");
+      }
+
+      // Step 2: Pre-fund deposit if needed
+      if (currentDeposit < MIN_DEPOSIT) {
+        console.log("Insufficient deposit, pre-funding required...");
+        addStep({
+          status: "Pre-funding smart account gas in EntryPoint...",
+          isComplete: false,
+        });
+
+        const depositResponse = await fetch("/api/verify-passkey/deposit", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ smartWalletAddress, useAnvil }),
+        });
+
+        if (!depositResponse.ok) {
+          const error = await depositResponse.text();
+          updateStep(0, { error, isComplete: true });
+          return;
+        }
+
+        const { txHash: depositTxHash } = await depositResponse.json();
+        console.log("Deposit transaction hash:", depositTxHash);
+        updateStep(0, {
+          status: "Waiting for gas pre-funding transaction...",
+          isComplete: false,
+          txHash: depositTxHash,
+        });
+
+        await waitForTransaction(depositTxHash, chain);
+        const newDeposit = (await publicClient.readContract({
+          address: EntryPointAddress,
+          abi: EntryPointAbi,
+          functionName: "balanceOf",
+          args: [smartWalletAddress],
+        })) as bigint;
+        console.log("New deposit balance:", newDeposit.toString(), "wei");
+
+        updateStep(0, {
+          status: "Gas pre-funding complete",
+          isComplete: true,
+          txHash: depositTxHash,
+        });
+      } else {
+        console.log("Sufficient deposit exists, skipping pre-funding");
+      }
+
+      // Step 3: Prepare and sign userOp
+      console.log("Getting owner index...");
       const nextOwnerIndex = await publicClient.readContract({
         address: smartWalletAddress,
         abi: [
@@ -90,13 +236,10 @@ export function PasskeyVerification({
         functionName: "nextOwnerIndex",
       });
 
-      // The owner index for our passkey should be nextOwnerIndex - 1
-      // since we just added it in the registration step
       const ourOwnerIndex = Number(nextOwnerIndex - BigInt(1));
-      onStatus?.(`Using owner index: ${ourOwnerIndex}`);
+      console.log("Using owner index:", ourOwnerIndex);
 
-      // Create smart account client using the passkey's WebAuthn account
-      onStatus?.("Creating smart account client...");
+      console.log("Creating smart account client...");
       const smartAccount = await toCoinbaseSmartAccount({
         client: publicClient,
         owners: [webAuthnAccount],
@@ -104,21 +247,27 @@ export function PasskeyVerification({
         ownerIndex: ourOwnerIndex,
       });
 
-      // Create user operation to send 1 wei back to relayer
-      onStatus?.("Creating userOp to send 1 wei...");
+      addStep({
+        status:
+          "Creating and signing userOp to transfer 1 wei back to relayer...",
+        isComplete: false,
+      });
+
+      // Create and sign userOp
+      console.log("Encoding transfer call...");
       const callData = await smartAccount.encodeCalls([
         {
           to: process.env.NEXT_PUBLIC_RELAYER_ADDRESS as Address,
           value: BigInt(1),
-          data: "0x",
+          data: "0x" as const,
         },
       ]);
 
-      // Get the nonce
+      console.log("Getting nonce...");
       const nonce = await smartAccount.getNonce();
+      console.log("Current nonce:", nonce.toString());
 
-      // Construct the userOp with reasonable gas values
-      onStatus?.("Preparing userOperation...");
+      console.log("Preparing userOperation...");
       const unsignedUserOp = {
         sender: smartAccount.address,
         nonce,
@@ -127,209 +276,130 @@ export function PasskeyVerification({
         callGasLimit: BigInt(500000),
         verificationGasLimit: BigInt(500000),
         preVerificationGas: BigInt(100000),
-        maxFeePerGas: BigInt(3000000000), // 3 gwei
-        maxPriorityFeePerGas: BigInt(2000000000), // 2 gwei
+        maxFeePerGas: BigInt(3000000000),
+        maxPriorityFeePerGas: BigInt(2000000000),
         paymasterAndData: "0x" as const,
         signature: "0x" as const,
       } as const;
 
-      console.log("\n=== UserOp before signing ===");
-      console.log(JSON.stringify(serializeBigInts(unsignedUserOp), null, 2));
-
-      // Sign with WebAuthn account to get signature
-      onStatus?.("Signing userOperation...");
+      console.log("Signing userOperation...");
       const signature = await smartAccount.signUserOperation(unsignedUserOp);
-
-      console.log("\n=== Signature from signUserOperation ===");
-      console.log("Raw signature:", signature);
       console.log("Signature length:", (signature.length - 2) / 2, "bytes");
 
-      // Use the signature directly without any modifications
-      const userOp = {
-        ...unsignedUserOp,
-        signature,
-      } as UserOperation;
+      const userOp = { ...unsignedUserOp, signature } as UserOperation;
+      console.log("UserOperation prepared:", serializeBigInts(userOp));
 
-      onStatus?.("UserOperation prepared and signed");
+      updateStep(1, {
+        status: "UserOperation created and signed",
+        isComplete: true,
+      });
 
-      console.log("\n=== UserOp after signing (before serialization) ===");
-      console.log(JSON.stringify(serializeBigInts(userOp), null, 2));
+      // Step 4: Submit userOp
+      addStep({
+        status: "Submitting userOperation...",
+        isComplete: false,
+      });
 
-      // Serialize the userOp and log for debugging
-      const serializedUserOp = serializeBigInts(userOp);
-      console.log("\n=== UserOp after serialization ===");
-      console.log(JSON.stringify(serializedUserOp, null, 2));
-
-      onStatus?.("Calling verification API...");
-
-      // Call backend to verify the passkey
-      const response = await fetch("/api/verify-passkey", {
+      const submitResponse = await fetch("/api/verify-passkey/submit", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          smartWalletAddress,
-          publicKey: webAuthnAccount.publicKey,
-          userOp: serializedUserOp,
+          userOp: serializeBigInts(userOp),
           useAnvil,
         }),
       });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Failed to verify passkey: ${errorText}`);
+      if (!submitResponse.ok) {
+        const error = await submitResponse.text();
+        updateStep(2, { error, isComplete: true });
+        return;
       }
 
-      const { isOwner, status, error } = await response.json();
-      setIsOwner(isOwner);
-      if (status) {
-        setVerificationStatus(status);
-        status.forEach((msg: string) => onStatus?.(msg));
+      const { txHash, userOpHash } = await submitResponse.json();
+      updateStep(2, {
+        status: "Waiting for userOperation transaction...",
+        isComplete: false,
+        txHash,
+        userOpHash,
+      });
+
+      await waitForTransaction(txHash, chain);
+      updateStep(2, {
+        status: "UserOperation submitted successfully",
+        isComplete: true,
+        txHash,
+        userOpHash,
+      });
+
+      // Step 5: Retrieve unused deposit
+      addStep({
+        status: "Retrieving unused deposit...",
+        isComplete: false,
+      });
+
+      const retrieveResponse = await fetch("/api/verify-passkey/retrieve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          smartWalletAddress,
+          useAnvil,
+        }),
+      });
+
+      if (!retrieveResponse.ok) {
+        const error = await retrieveResponse.text();
+        updateStep(3, { error, isComplete: true });
+        return;
       }
-      if (error) {
-        onStatus?.(`Error: ${error}`);
+
+      const { txHash: retrieveTxHash } = await retrieveResponse.json();
+      if (retrieveTxHash) {
+        updateStep(3, {
+          status: "Waiting for withdrawal transaction...",
+          isComplete: false,
+          txHash: retrieveTxHash,
+        });
+
+        await waitForTransaction(retrieveTxHash, chain);
+        updateStep(3, {
+          status: "Successfully retrieved unused deposit",
+          isComplete: true,
+          txHash: retrieveTxHash,
+        });
+      } else {
+        updateStep(3, {
+          status: "No unused deposit to retrieve",
+          isComplete: true,
+        });
       }
     } catch (error) {
-      onStatus?.("Verification failed:");
-      if (error instanceof Error) {
-        try {
-          // Try to parse the error message as JSON
-          const errorText = error.message;
-          if (errorText.includes("Failed to verify passkey: {")) {
-            const jsonStr = errorText.split("Failed to verify passkey: ")[1];
-            const errorData = JSON.parse(jsonStr);
-
-            // Display a more structured error message
-            onStatus?.("Error Details:");
-            if (errorData.error) {
-              const mainError = errorData.error.split("\n")[0]; // Get first line of error
-              onStatus?.(`Main Error: ${mainError}`);
-
-              // If it's a contract revert, show that separately
-              if (errorData.error.includes("Contract Call:")) {
-                const [_, contractError] =
-                  errorData.error.split("Contract Call:");
-                onStatus?.("Contract Call Details:");
-                contractError.split("\n").forEach((line: string) => {
-                  if (line.trim()) {
-                    // Only show the first part of very long lines
-                    const trimmedLine =
-                      line.length > 100 ? line.slice(0, 100) + "..." : line;
-                    onStatus?.(`  ${trimmedLine.trim()}`);
-                  }
-                });
-              }
-            }
-
-            // Show status messages if any
-            if (errorData.status && Array.isArray(errorData.status)) {
-              onStatus?.("\nExecution Status:");
-              errorData.status.forEach((msg: string) => {
-                if (msg.includes("Error:")) {
-                  // For error messages, only show the first line
-                  const firstLine = msg.split("\n")[0];
-                  onStatus?.(`  ${firstLine}`);
-                } else {
-                  onStatus?.(`  ${msg}`);
-                }
-              });
-            }
-          } else {
-            // If not JSON, show the original error message
-            onStatus?.(errorText);
-          }
-        } catch {
-          // If JSON parsing fails, fall back to original error message
-          onStatus?.(error.message);
-        }
-      } else {
-        onStatus?.(String(error));
-      }
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      addStep({
+        status: "Verification failed",
+        isComplete: true,
+        error: errorMessage,
+      });
     } finally {
       setVerifying(false);
     }
-  }, [smartWalletAddress, passkey, useAnvil, onStatus]);
+  }, [smartWalletAddress, passkey, useAnvil, chain]);
 
   return (
-    <div className="flex flex-col gap-4 w-full">
+    <div className="flex flex-col items-center w-full max-w-3xl mx-auto mt-8">
       <button
         onClick={handleVerify}
         disabled={verifying}
-        className="px-4 py-2 font-bold text-white bg-blue-500 rounded hover:bg-blue-700 disabled:opacity-50"
+        className="px-6 py-3 text-lg font-semibold text-white bg-blue-500 rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed mb-8 w-64"
       >
         {verifying ? "Verifying..." : "Verify with Passkey"}
       </button>
-      {isOwner !== null && (
-        <div
-          className={`text-center font-bold ${
-            isOwner ? "text-green-500" : "text-red-500"
-          }`}
-        >
-          {isOwner
-            ? "✅ Passkey is a valid owner!"
-            : "❌ Passkey is not an owner."}
-        </div>
-      )}
-      {verificationStatus.length > 0 && (
-        <div
-          className="mt-4 bg-gray-900 text-green-400 p-4 rounded font-mono text-sm"
-          style={{ width: "100%", maxWidth: "600px" }}
-        >
-          <div style={{ overflowX: "scroll", width: "100%" }}>
-            <div style={{ minWidth: "100%", whiteSpace: "pre" }}>
-              {verificationStatus.map((status, index) => {
-                // For transaction hashes
-                if (
-                  status.includes("Transaction hash:") ||
-                  status.includes("UserOperation hash:")
-                ) {
-                  const [prefix, hash] = status.split(": ");
-                  return (
-                    <div key={index}>
-                      {prefix}:{" "}
-                      <TransactionHash hash={hash} useAnvil={useAnvil} />
-                    </div>
-                  );
-                }
 
-                // For error messages, truncate and add "Show More" button
-                if (
-                  status.length > 100 &&
-                  (status.includes("Error:") ||
-                    status.includes("Contract Call:"))
-                ) {
-                  return (
-                    <details key={index} className="group cursor-pointer">
-                      <summary className="list-none">
-                        <span className="text-red-400">
-                          {status.slice(0, 100)}...
-                          <span className="text-blue-400 ml-2 group-open:hidden">
-                            (Show More)
-                          </span>
-                        </span>
-                      </summary>
-                      <div
-                        className="mt-2 pl-4 text-xs border-l-2 border-gray-700"
-                        style={{ whiteSpace: "pre-wrap" }}
-                      >
-                        {status}
-                      </div>
-                    </details>
-                  );
-                }
-
-                // For normal status messages
-                return (
-                  <div key={index} style={{ whiteSpace: "pre-wrap" }}>
-                    {status}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      )}
+      <div className="w-full space-y-4">
+        {steps.map((step, index) => (
+          <StepDisplay key={index} step={step} useAnvil={useAnvil} />
+        ))}
+      </div>
     </div>
   );
 }
