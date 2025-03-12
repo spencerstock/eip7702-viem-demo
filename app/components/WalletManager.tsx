@@ -5,8 +5,8 @@ import {
   getRelayerWalletClient,
   createEOAClient,
   encodeInitializeArgs,
-  createInitializeHash,
-  signInitialization,
+  createSetImplementationHash,
+  signSetImplementation,
   type ExtendedAccount,
   localAnvil,
 } from "../lib/wallet-utils";
@@ -16,6 +16,10 @@ import {
   createWebAuthnCredential,
   type P256Credential,
 } from "viem/account-abstraction";
+import {
+  NEW_IMPLEMENTATION_ADDRESS,
+  ZERO_ADDRESS,
+} from "../lib/contracts";
 
 interface WalletManagerProps {
   useAnvil: boolean;
@@ -242,8 +246,21 @@ export function WalletManager({
           : (process.env.NEXT_PUBLIC_RELAYER_ADDRESS as Hex),
         passkey,
       ]);
-      const initHashForSig = createInitializeHash(proxyAddress!, initArgs);
-      const signature = await signInitialization(userWallet, initHashForSig);
+
+      // Create the setImplementation hash
+      const chainId = useAnvil ? localAnvil.id : odysseyTestnet.id;
+      const setImplementationHash = createSetImplementationHash(
+        proxyAddress!,
+        NEW_IMPLEMENTATION_ADDRESS,
+        initArgs,
+        BigInt(0), // nonce
+        ZERO_ADDRESS, // currentImplementation
+        false, // allowCrossChainReplay
+        BigInt(chainId)
+      );
+
+      // Sign the hash
+      const signature = await signSetImplementation(userWallet, setImplementationHash);
 
       // Submit initialization transaction
       setStatus("Submitting initialization transaction...");
@@ -252,10 +269,10 @@ export function WalletManager({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(
           {
-            operation: "initialize",
+            operation: "setImplementation",
             targetAddress: account!.address,
             initArgs,
-            initSignature: signature,
+            signature,
             value: "0",
           },
           (_, value) => (typeof value === "bigint" ? value.toString() : value)
@@ -265,7 +282,7 @@ export function WalletManager({
       if (!initResponse.ok) {
         const error = await initResponse.json();
         throw new Error(
-          error.error || "Failed to relay initialize transaction"
+          error.error || "Failed to relay setImplementation transaction"
         );
       }
       const initTxHash = (await initResponse.json()).hash as `0x${string}`;

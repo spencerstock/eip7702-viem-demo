@@ -2,10 +2,13 @@ import {
   createWalletClient,
   http,
   encodeAbiParameters,
+  encodeFunctionData,
+  keccak256,
   WalletClient,
   type Account,
   type Address,
   type Hex,
+  getFunctionSelector,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { anvil } from "viem/chains";
@@ -14,6 +17,12 @@ import { secp256k1 } from "@noble/curves/secp256k1";
 import { hexToBytes } from "@noble/curves/abstract/utils";
 import { keccak256 as keccak256Crypto } from "ethereum-cryptography/keccak";
 import { odysseyTestnet } from "./chains";
+import { 
+  IMPLEMENTATION_SET_TYPEHASH, 
+  VALIDATOR_ADDRESS,
+  NEW_IMPLEMENTATION_ADDRESS,
+  ZERO_ADDRESS,
+} from "./contracts";
 
 // Configure anvil chain with the correct URL
 export const localAnvil = {
@@ -131,9 +140,18 @@ export function encodeInitializeArgs(
     }
   });
 
-  // Then encode the array of encoded owners
-  const initArgs = encodeAbiParameters([{ type: "bytes[]" }], [encodedOwners]);
-  return initArgs;
+  // Encode the function call using encodeFunctionData
+  return encodeFunctionData({
+    abi: [{
+      type: 'function',
+      name: 'initialize',
+      inputs: [{ type: 'bytes[]', name: 'owners' }],
+      outputs: [],
+      stateMutability: 'payable'
+    }],
+    functionName: 'initialize',
+    args: [encodedOwners]
+  });
 }
 
 export function createInitializeHash(proxyAddr: Hex, initArgs: Hex): Hex {
@@ -155,6 +173,79 @@ export function createInitializeHash(proxyAddr: Hex, initArgs: Hex): Hex {
 
 // Create a raw signature without Ethereum prefix
 export async function signInitialization(
+  walletClient: WalletClient,
+  hash: Hex
+): Promise<Hex> {
+  if (!walletClient.account) {
+    throw new Error("Wallet client has no account");
+  }
+
+  // Get the private key from our extended account
+  const privateKeyBytes = hexToBytes(
+    (walletClient.account as ExtendedAccount)._privateKey.slice(2)
+  );
+
+  // Sign the hash (without any Ethereum prefix)
+  const hashBytes = hexToBytes(hash.slice(2));
+  const signature = secp256k1.sign(hashBytes, privateKeyBytes);
+
+  // Get r, s, v values
+  const r = signature.r.toString(16).padStart(64, "0");
+  const s = signature.s.toString(16).padStart(64, "0");
+  const v = signature.recovery + 27;
+
+  // Pack the signature
+  const packedSignature = `0x${r}${s}${v.toString(16)}` as Hex;
+
+  return packedSignature;
+}
+
+export function createSetImplementationHash(
+  proxyAddr: Hex,
+  newImplementation: Hex,
+  callData: Hex,
+  nonce: bigint,
+  currentImplementation: Hex,
+  allowCrossChainReplay: boolean,
+  chainId: bigint
+): Hex {
+  // First hash the calldata
+  const callDataHash = keccak256(callData);
+
+  // First compute the typehash
+  const typeHash = keccak256(
+    Buffer.from(IMPLEMENTATION_SET_TYPEHASH, 'utf-8')
+  );
+
+  // Construct the hash using the typehash
+  const encodedData = encodeAbiParameters(
+    [
+      { type: "bytes32" },  // typehash
+      { type: "uint256" },  // chainId
+      { type: "address" },  // proxy
+      { type: "uint256" },  // nonce
+      { type: "address" },  // currentImplementation
+      { type: "address" },  // newImplementation
+      { type: "bytes32" },  // keccak256(callData)
+      { type: "address" },  // validator
+    ],
+    [
+      typeHash,
+      allowCrossChainReplay ? BigInt(0) : chainId,
+      proxyAddr,
+      nonce,
+      ZERO_ADDRESS, // current implementation is zero address
+      NEW_IMPLEMENTATION_ADDRESS, // new implementation
+      callDataHash,
+      VALIDATOR_ADDRESS,
+    ]
+  );
+
+  return keccak256(encodedData);
+}
+
+// Create a raw signature without Ethereum prefix
+export async function signSetImplementation(
   walletClient: WalletClient,
   hash: Hex
 ): Promise<Hex> {
