@@ -23,11 +23,10 @@ import {
 
 interface WalletManagerProps {
   useAnvil: boolean;
-  onWalletCreated: (address: string) => void;
+  onWalletCreated: (address: string, explorerLink: string | null) => void;
   onUpgradeComplete: (
     address: `0x${string}`,
     upgradeHash: string,
-    initHash: string,
     code: string
   ) => void;
   resetKey: number;
@@ -52,11 +51,11 @@ function formatError(error: any): string {
   return errorMessage;
 }
 
-function formatExplorerLink(hash: string, useAnvil: boolean): string | null {
+function formatExplorerLink(hash: string, useAnvil: boolean, type: 'transaction' | 'address' = 'transaction'): string | null {
   if (useAnvil) {
     return null;
   }
-  return `${odysseyTestnet.blockExplorers.default.url}/tx/${hash}`;
+  return `${odysseyTestnet.blockExplorers.default.url}/${type}/${hash}`;
 }
 
 export function WalletManager({
@@ -72,11 +71,6 @@ export function WalletManager({
   const [account, setAccount] = useState<ExtendedAccount | null>(null);
   const [isUpgraded, setIsUpgraded] = useState(false);
   const [status, setStatus] = useState<string>("");
-  const [showPasskeyButton, setShowPasskeyButton] = useState(false);
-  const [userWallet, setUserWallet] = useState<any>(null);
-  const [proxyAddress, setProxyAddress] = useState<`0x${string}` | null>(null);
-  const [upgradeHash, setUpgradeHash] = useState<`0x${string}` | null>(null);
-  const [deployedCode, setDeployedCode] = useState<string | null>(null);
 
   // Reset internal state when resetKey changes
   useEffect(() => {
@@ -85,11 +79,6 @@ export function WalletManager({
     setAccount(null);
     setIsUpgraded(false);
     setStatus("");
-    setShowPasskeyButton(false);
-    setUserWallet(null);
-    setProxyAddress(null);
-    setUpgradeHash(null);
-    setDeployedCode(null);
   }, [resetKey]);
 
   const handleCreateEOA = async () => {
@@ -98,7 +87,8 @@ export function WalletManager({
       setError(null);
       const newAccount = await createEOAWallet();
       setAccount(newAccount);
-      onWalletCreated(newAccount.address);
+      const explorerLink = formatExplorerLink(newAccount.address, useAnvil, 'address');
+      onWalletCreated(newAccount.address, explorerLink);
       onAccountCreated(newAccount);
     } catch (error) {
       console.error("Error creating EOA:", error);
@@ -122,12 +112,6 @@ export function WalletManager({
       // Create user's wallet client for signing
       const userWallet = createEOAClient(account, useAnvil);
 
-      // For Anvil, use the local relayer. For Odyssey, use the API
-      if (useAnvil) {
-        const relayerWallet = await getRelayerWalletClient(true);
-        console.log("Relayer address:", relayerWallet.account.address);
-      }
-
       // Create public client for reading state
       const publicClient = createPublicClient({
         chain: useAnvil ? localAnvil : odysseyTestnet,
@@ -139,97 +123,6 @@ export function WalletManager({
         ? EIP7702ProxyAddresses.anvil
         : EIP7702ProxyAddresses.odyssey;
       console.log("Proxy template address:", proxyAddress);
-
-      // Create the authorization signature
-      setStatus("Creating authorization signature...");
-      const authorization = await userWallet.signAuthorization({
-        contractAddress: proxyAddress,
-        sponsor: useAnvil
-          ? (
-              await getRelayerWalletClient(true)
-            ).account.address
-          : (process.env.NEXT_PUBLIC_RELAYER_ADDRESS as `0x${string}`),
-      });
-
-      let upgradeHash: `0x${string}`;
-      let initTxHash: `0x${string}`;
-
-      if (useAnvil) {
-        throw new Error(
-          "Anvil is not currently supported until we figure out how to deploy the EntryPoint contract"
-        );
-      } else {
-        // Use API for Odyssey
-        setStatus("✓ Submitting upgrade transaction...");
-        const upgradeResponse = await fetch("/api/relay", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(
-            {
-              operation: "upgrade",
-              targetAddress: account.address,
-              authorizationList: [authorization],
-              value: "1",
-            },
-            (_, value) => (typeof value === "bigint" ? value.toString() : value)
-          ),
-        });
-
-        if (!upgradeResponse.ok) {
-          const error = await upgradeResponse.json();
-          throw new Error(error.error || "Failed to relay upgrade transaction");
-        }
-        upgradeHash = (await upgradeResponse.json()).hash;
-        console.log("✓ Upgrade transaction submitted:", upgradeHash);
-
-        // Wait for the upgrade transaction to be mined
-        setStatus("✓ Waiting for upgrade transaction confirmation...");
-        const upgradeReceipt = await publicClient.waitForTransactionReceipt({
-          hash: upgradeHash,
-        });
-        if (upgradeReceipt.status !== "success") {
-          throw new Error("Upgrade transaction failed");
-        }
-        console.log("✓ Upgrade transaction confirmed");
-
-        // Check if the code was deployed
-        setStatus("✓ Verifying deployment...");
-        const code = await publicClient.getCode({ address: account.address });
-
-        if (code && code !== "0x") {
-          console.log("✓ Code deployed successfully");
-          console.log("\n=== Wallet upgrade complete ===");
-          console.log("Smart wallet address:", account.address);
-          setStatus("✓ EOA has been upgraded to a Coinbase Smart Wallet!");
-          onUpgradeComplete(
-            account.address as `0x${string}`,
-            upgradeHash,
-            "",
-            code
-          );
-          setIsUpgraded(true);
-          setUserWallet(userWallet);
-          setProxyAddress(proxyAddress);
-          setUpgradeHash(upgradeHash);
-          setDeployedCode(code);
-          setShowPasskeyButton(true);
-        } else {
-          console.log("✗ Code deployment failed");
-          throw new Error("Code deployment failed");
-        }
-      }
-    } catch (error: any) {
-      console.error("Upgrade failed:", error);
-      setError(formatError(error));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handlePasskeyCreation = async () => {
-    try {
-      setLoading(true);
-      setError(null);
 
       // Create a new passkey
       setStatus("Creating new passkey...");
@@ -250,7 +143,7 @@ export function WalletManager({
       // Create the setImplementation hash
       const chainId = useAnvil ? localAnvil.id : odysseyTestnet.id;
       const setImplementationHash = createSetImplementationHash(
-        proxyAddress!,
+        proxyAddress,
         NEW_IMPLEMENTATION_ADDRESS,
         initArgs,
         BigInt(0), // nonce
@@ -262,56 +155,100 @@ export function WalletManager({
       // Sign the hash
       const signature = await signSetImplementation(userWallet, setImplementationHash);
 
-      // Submit initialization transaction
-      setStatus("Submitting initialization transaction...");
-      const initResponse = await fetch("/api/relay", {
+      // Create the authorization signature for EIP-7702
+      setStatus("Creating authorization signature...");
+      const authorization = await userWallet.signAuthorization({
+        contractAddress: proxyAddress,
+        sponsor: useAnvil
+          ? (
+              await getRelayerWalletClient(true)
+            ).account.address
+          : (process.env.NEXT_PUBLIC_RELAYER_ADDRESS as `0x${string}`),
+      });
+
+      // Submit the combined upgrade transaction
+      setStatus("✓ Submitting upgrade transaction...");
+      const upgradeResponse = await fetch("/api/relay", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(
           {
-            operation: "setImplementation",
-            targetAddress: account!.address,
+            operation: "upgradeEOA",
+            targetAddress: account.address,
             initArgs,
             signature,
-            value: "0",
+            authorizationList: [authorization],
           },
           (_, value) => (typeof value === "bigint" ? value.toString() : value)
         ),
       });
 
-      if (!initResponse.ok) {
-        const error = await initResponse.json();
-        throw new Error(
-          error.error || "Failed to relay setImplementation transaction"
+      if (!upgradeResponse.ok) {
+        const error = await upgradeResponse.json();
+        throw new Error(error.error || "Failed to relay upgrade transaction");
+      }
+      const upgradeHash = (await upgradeResponse.json()).hash;
+      console.log("✓ Upgrade transaction submitted:", upgradeHash);
+
+      // Wait for the upgrade transaction to be mined
+      setStatus("✓ Waiting for upgrade transaction confirmation...");
+      const upgradeReceipt = await publicClient.waitForTransactionReceipt({
+        hash: upgradeHash,
+      });
+      if (upgradeReceipt.status !== "success") {
+        throw new Error("Upgrade transaction failed");
+      }
+      console.log("✓ Upgrade transaction confirmed");
+
+      // Check if the code was deployed
+      setStatus("✓ Verifying deployment...");
+      const code = await publicClient.getCode({ address: account.address });
+
+      if (code && code !== "0x") {
+        console.log("✓ Code deployed successfully");
+        
+        // Verify passkey ownership
+        setStatus("✓ Verifying passkey ownership...");
+        const isOwner = await publicClient.readContract({
+          address: account.address,
+          abi: [
+            {
+              type: "function",
+              name: "isOwnerPublicKey",
+              inputs: [
+                { name: "x", type: "bytes32" },
+                { name: "y", type: "bytes32" },
+              ],
+              outputs: [{ type: "bool" }],
+              stateMutability: "view",
+            },
+          ],
+          functionName: "isOwnerPublicKey",
+          args: [
+            `0x${passkey.publicKey.slice(2, 66)}` as `0x${string}`,
+            `0x${passkey.publicKey.slice(66)}` as `0x${string}`,
+          ],
+        });
+
+        if (!isOwner) {
+          throw new Error("Passkey verification failed: not registered as an owner");
+        }
+
+        console.log("\n=== Wallet upgrade complete ===");
+        console.log("Smart wallet address:", account.address);
+        setStatus("✓ EOA has been upgraded to a Coinbase Smart Wallet with verified passkey!");
+        onUpgradeComplete(
+          account.address as `0x${string}`,
+          upgradeHash,
+          code
         );
+        setIsUpgraded(true);
+      } else {
+        console.log("✗ Code deployment failed");
+        throw new Error("Code deployment failed");
       }
-      const initTxHash = (await initResponse.json()).hash as `0x${string}`;
-      console.log("✓ Initialization transaction submitted:", initTxHash);
-
-      // Wait for init transaction to be mined
-      setStatus("✓ Waiting for initialization transaction confirmation...");
-      const publicClient = createPublicClient({
-        chain: useAnvil ? localAnvil : odysseyTestnet,
-        transport: http(),
-      });
-      const initReceipt = await publicClient.waitForTransactionReceipt({
-        hash: initTxHash,
-      });
-      if (initReceipt.status !== "success") {
-        throw new Error("Initialization transaction failed");
-      }
-      console.log("✓ Initialization transaction confirmed");
-      setStatus("✓ Smart Wallet has been initialized with passkey owner!");
-
-      onUpgradeComplete(
-        account!.address as `0x${string}`,
-        upgradeHash!,
-        initTxHash,
-        deployedCode!
-      );
-      setShowPasskeyButton(false);
     } catch (error: any) {
-      console.error("Passkey creation failed:", error);
+      console.error("Upgrade failed:", error);
       setError(formatError(error));
     } finally {
       setLoading(false);
@@ -337,16 +274,6 @@ export function WalletManager({
           className="w-64 px-4 py-2 bg-purple-500 text-white rounded hover:bg-purple-600 disabled:opacity-50"
         >
           {loading ? "Upgrading..." : "Upgrade EOA to Smart Wallet"}
-        </button>
-      )}
-
-      {showPasskeyButton && (
-        <button
-          onClick={handlePasskeyCreation}
-          disabled={loading}
-          className="w-64 px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 disabled:opacity-50"
-        >
-          {loading ? "Creating..." : "Create Passkey"}
         </button>
       )}
 

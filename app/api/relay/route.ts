@@ -50,43 +50,37 @@ export async function POST(request: Request) {
         });
         return Response.json({ hash });
       }
-
-      case "upgrade": {
-        const { authorizationList, value } = body;
+      
+      case "upgradeEOA": {
+        const { initArgs, signature, authorizationList } = body;
+        
+        // Combined transaction that includes both the 7702 authorization and setImplementation call
         const hash = await relayerWallet.sendTransaction({
           to: targetAddress,
-          value: BigInt(value),
+          data: encodeFunctionData({
+            abi: [{
+              type: "function",
+              name: "setImplementation",
+              inputs: [
+                { name: "newImplementation", type: "address" },
+                { name: "callData", type: "bytes" },
+                { name: "validator", type: "address" },
+                { name: "signature", type: "bytes" },
+                { name: "allowCrossChainReplay", type: "bool" }
+              ],
+              outputs: [],
+              stateMutability: "payable"
+            }],
+            functionName: "setImplementation",
+            args: [
+              NEW_IMPLEMENTATION_ADDRESS,
+              initArgs,
+              VALIDATOR_ADDRESS,
+              signature,
+              false
+            ]
+          }),
           authorizationList,
-        });
-        return Response.json({ hash });
-      }
-
-      case "setImplementation": {
-        const { initArgs, signature } = body;
-        
-        const hash = await relayerWallet.writeContract({
-          address: targetAddress,
-          abi: [{
-            type: "function",
-            name: "setImplementation",
-            inputs: [
-              { name: "newImplementation", type: "address" },
-              { name: "callData", type: "bytes" },
-              { name: "validator", type: "address" },
-              { name: "signature", type: "bytes" },
-              { name: "allowCrossChainReplay", type: "bool" }
-            ],
-            outputs: [],
-            stateMutability: "payable"
-          }],
-          functionName: "setImplementation",
-          args: [
-            NEW_IMPLEMENTATION_ADDRESS,
-            initArgs,
-            VALIDATOR_ADDRESS,
-            signature,
-            false
-          ]
         });
         
         return Response.json({ hash });

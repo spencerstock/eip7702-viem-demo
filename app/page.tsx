@@ -10,8 +10,8 @@ import { type P256Credential } from "viem/account-abstraction";
 export default function Home() {
   const [resetKey, setResetKey] = useState(0);
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
+  const [walletExplorerLink, setWalletExplorerLink] = useState<string | null>(null);
   const [upgradeTxHash, setUpgradeTxHash] = useState<string | null>(null);
-  const [initTxHash, setInitTxHash] = useState<string | null>(null);
   const [bytecode, setBytecode] = useState<string | null>(null);
   const [isUpgradeConfirmed, setIsUpgradeConfirmed] = useState(false);
   const [account, setAccount] = useState<ExtendedAccount | null>(null);
@@ -19,8 +19,8 @@ export default function Home() {
 
   const handleReset = () => {
     setWalletAddress(null);
+    setWalletExplorerLink(null);
     setUpgradeTxHash(null);
-    setInitTxHash(null);
     setBytecode(null);
     setIsUpgradeConfirmed(false);
     setAccount(null);
@@ -31,16 +31,11 @@ export default function Home() {
   const handleUpgradeComplete = async (
     address: `0x${string}`,
     upgradeHash: string,
-    initHash: string,
     code: string
   ) => {
     setUpgradeTxHash(upgradeHash);
     setBytecode(code);
-    if (initHash) {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      setInitTxHash(initHash);
-      setIsUpgradeConfirmed(true);
-    }
+    setIsUpgradeConfirmed(true);
   };
 
   return (
@@ -65,7 +60,10 @@ export default function Home() {
       <div className="mb-8">
         <WalletManager
           useAnvil={false}
-          onWalletCreated={setWalletAddress}
+          onWalletCreated={(address, explorerLink) => {
+            setWalletAddress(address);
+            setWalletExplorerLink(explorerLink);
+          }}
           onUpgradeComplete={handleUpgradeComplete}
           resetKey={resetKey}
           onAccountCreated={setAccount}
@@ -79,8 +77,19 @@ export default function Home() {
             <div className="flex items-center gap-2">
               <span className="text-green-500">✓</span>
               <span className="text-gray-400">New EOA Address:</span>
-              <div className="break-all text-green-500 font-mono">
-                {walletAddress}
+              <div className="break-all">
+                {walletExplorerLink ? (
+                  <a
+                    href={walletExplorerLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-400 hover:text-blue-300 underline font-mono"
+                  >
+                    {walletAddress}
+                  </a>
+                ) : (
+                  <span className="text-green-500 font-mono">{walletAddress}</span>
+                )}
               </div>
             </div>
           </div>
@@ -107,12 +116,13 @@ export default function Home() {
           </div>
         </div>
       )}
+
       {bytecode && (
         <div className="mb-4 w-full">
           <div className="p-4 bg-gray-800 rounded-lg w-full max-w-5xl mx-auto">
             <div className="flex items-center gap-2">
               <span className="text-green-500">✓</span>
-              <span className="text-gray-400">Smart Contract Bytecode:</span>
+              <span className="text-gray-400">EOA Bytecode:</span>
               <div className="break-all text-green-500 font-mono">
                 {bytecode}
               </div>
@@ -120,21 +130,21 @@ export default function Home() {
           </div>
         </div>
       )}
-      {initTxHash && (
+
+      {isUpgradeConfirmed && passkey && (
         <div className="mb-4 w-full">
           <div className="p-4 bg-gray-800 rounded-lg w-full max-w-5xl mx-auto">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 mb-2">
               <span className="text-green-500">✓</span>
-              <span className="text-gray-400">Initialize Transaction:</span>
-              <div className="break-all">
-                <a
-                  href={`${odysseyTestnet.blockExplorers.default.url}/tx/${initTxHash}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-blue-400 hover:text-blue-300 underline font-mono"
-                >
-                  {initTxHash}
-                </a>
+              <span className="text-gray-400">Passkey Verification:</span>
+              <div className="text-green-500">
+                Successfully verified passkey as wallet owner
+              </div>
+            </div>
+            <div className="ml-6 mt-2">
+              <div className="text-gray-400 mb-1">Passkey Public Key:</div>
+              <div className="break-all font-mono text-sm text-blue-400">
+                {passkey.publicKey}
               </div>
             </div>
           </div>

@@ -129,7 +129,7 @@ export function PasskeyVerification({
       setVerifying(true);
       setSteps([]);
 
-      // Step 1: Create WebAuthn account and verify ownership
+      // Create WebAuthn account
       console.log("Creating WebAuthn account from passkey...");
       const webAuthnAccount = toWebAuthnAccount({ credential: passkey });
       console.log("WebAuthn account public key:", webAuthnAccount.publicKey);
@@ -137,48 +137,6 @@ export function PasskeyVerification({
       const publicClient = createPublicClient({
         chain,
         transport: http(),
-      });
-
-      // Verify passkey ownership
-      addStep({
-        status: "Verifying passkey ownership...",
-        isComplete: false,
-      });
-
-      const isOwner = await publicClient.readContract({
-        address: smartWalletAddress,
-        abi: [
-          {
-            type: "function",
-            name: "isOwnerPublicKey",
-            inputs: [
-              { name: "x", type: "bytes32" },
-              { name: "y", type: "bytes32" },
-            ],
-            outputs: [{ type: "bool" }],
-            stateMutability: "view",
-          },
-        ],
-        functionName: "isOwnerPublicKey",
-        args: [
-          `0x${webAuthnAccount.publicKey.slice(2, 66)}` as `0x${string}`,
-          `0x${webAuthnAccount.publicKey.slice(66)}` as `0x${string}`,
-        ],
-      });
-
-      if (!isOwner) {
-        updateStep(0, {
-          status: "Passkey ownership verification failed",
-          isComplete: true,
-          error:
-            "This passkey is not registered as an owner of the smart wallet",
-        });
-        return;
-      }
-
-      updateStep(0, {
-        status: "✓ Passkey verified as owner",
-        isComplete: true,
       });
 
       // Check current EntryPoint deposit
@@ -191,6 +149,12 @@ export function PasskeyVerification({
       })) as bigint;
       console.log("Current deposit:", currentDeposit.toString(), "wei");
 
+      // Step 1: Check and fund smart account if needed
+      addStep({
+        status: "Checking smart account balance...",
+        isComplete: false,
+      });
+
       // Check smart account balance
       console.log("Checking smart account balance...");
       const accountBalance = await publicClient.getBalance({
@@ -199,9 +163,12 @@ export function PasskeyVerification({
       console.log("Smart account balance:", accountBalance.toString(), "wei");
 
       if (accountBalance === BigInt(0)) {
-        console.log(
-          "Smart account has no balance, sending 1 wei from relayer..."
-        );
+        updateStep(0, {
+          status: "Funding smart account with 1 wei...",
+          isComplete: false,
+        });
+
+        console.log("Smart account has no balance, sending 1 wei from relayer...");
         const response = await fetch("/api/relay", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -220,6 +187,11 @@ export function PasskeyVerification({
         await waitForTransaction(hash as Hash, chain);
         console.log("Smart account funded with 1 wei");
       }
+
+      updateStep(0, {
+        status: "Smart account balance verified",
+        isComplete: true,
+      });
 
       // Step 2: Pre-fund deposit if needed
       if (currentDeposit < MIN_DEPOSIT) {
@@ -263,11 +235,15 @@ export function PasskeyVerification({
           isComplete: true,
           txHash: depositTxHash,
         });
-      } else {
-        console.log("Sufficient deposit exists, skipping pre-funding");
       }
 
-      // Step 3: Prepare and sign userOp
+      // Step 3: Create and sign userOp
+      addStep({
+        status: "Creating and signing userOp to transfer 1 wei to relayer...",
+        isComplete: false,
+      });
+
+      // Create and sign userOp
       console.log("Getting owner index...");
       const nextOwnerIndex = await publicClient.readContract({
         address: smartWalletAddress,
@@ -292,11 +268,6 @@ export function PasskeyVerification({
         owners: [webAuthnAccount],
         address: smartWalletAddress,
         ownerIndex: ourOwnerIndex,
-      });
-
-      addStep({
-        status: "Creating and signing userOp to transfer 1 wei to relayer...",
-        isComplete: false,
       });
 
       // Create and sign userOp
