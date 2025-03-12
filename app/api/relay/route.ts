@@ -61,28 +61,6 @@ export async function POST(request: Request) {
         return Response.json({ hash });
       }
 
-      case "initialize": {
-        const { initArgs, initSignature } = body;
-        const hash = await relayerWallet.writeContract({
-          address: targetAddress,
-          abi: [
-            {
-              type: "function",
-              name: "initialize",
-              inputs: [
-                { name: "args", type: "bytes" },
-                { name: "signature", type: "bytes" },
-              ],
-              outputs: [],
-              stateMutability: "payable",
-            },
-          ],
-          functionName: "initialize",
-          args: [initArgs, initSignature],
-        });
-        return Response.json({ hash });
-      }
-
       case "setImplementation": {
         const { initArgs, signature } = body;
         
