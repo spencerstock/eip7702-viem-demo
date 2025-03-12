@@ -2,9 +2,9 @@ import {
   createWalletClient,
   http,
   encodeAbiParameters,
+  encodeFunctionData,
+  keccak256,
   WalletClient,
-  type Account,
-  type Address,
   type Hex,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
@@ -14,6 +14,10 @@ import { secp256k1 } from "@noble/curves/secp256k1";
 import { hexToBytes } from "@noble/curves/abstract/utils";
 import { keccak256 as keccak256Crypto } from "ethereum-cryptography/keccak";
 import { odysseyTestnet } from "./chains";
+import { 
+  IMPLEMENTATION_SET_TYPEHASH, 
+  VALIDATOR_ADDRESS,
+} from "./contracts";
 
 // Configure anvil chain with the correct URL
 export const localAnvil = {
@@ -131,30 +135,65 @@ export function encodeInitializeArgs(
     }
   });
 
-  // Then encode the array of encoded owners
-  const initArgs = encodeAbiParameters([{ type: "bytes[]" }], [encodedOwners]);
-  return initArgs;
+  // Encode the function call using encodeFunctionData
+  return encodeFunctionData({
+    abi: [{
+      type: 'function',
+      name: 'initialize',
+      inputs: [{ type: 'bytes[]', name: 'owners' }],
+      outputs: [],
+      stateMutability: 'payable'
+    }],
+    functionName: 'initialize',
+    args: [encodedOwners]
+  });
 }
 
-export function createInitializeHash(proxyAddr: Hex, initArgs: Hex): Hex {
-  // ABI encode the proxy address and init args
-  const abiEncoded = encodeAbiParameters(
-    [
-      { name: "proxyAddr", type: "address" },
-      { name: "initArgs", type: "bytes" },
-    ],
-    [proxyAddr, initArgs]
+export function createSetImplementationHash(
+  proxyAddr: Hex,
+  newImplementation: Hex,
+  callData: Hex,
+  nonce: bigint,
+  currentImplementation: Hex,
+  allowCrossChainReplay: boolean,
+  chainId: bigint
+): Hex {
+  // First hash the calldata
+  const callDataHash = keccak256(callData);
+
+  // First compute the typehash
+  const typeHash = keccak256(
+    Buffer.from(IMPLEMENTATION_SET_TYPEHASH, 'utf-8')
   );
 
-  // Convert hex string to Uint8Array for keccak256
-  const abiEncodedBytes = hexToBytes(abiEncoded.slice(2));
-  const hashBytes = keccak256Crypto(abiEncodedBytes);
-  const hash = `0x${Buffer.from(hashBytes).toString("hex")}` as Hex;
-  return hash;
+  // Construct the hash using the typehash
+  const encodedData = encodeAbiParameters(
+    [
+      { type: "bytes32" },  // typehash
+      { type: "uint256" },  // chainId
+      { type: "address" },  // proxy
+      { type: "uint256" },  // nonce
+      { type: "address" },  // currentImplementation
+      { type: "address" },  // newImplementation
+      { type: "bytes32" },  // keccak256(callData)
+      { type: "address" },  // validator
+    ],
+    [
+      typeHash,
+      allowCrossChainReplay ? BigInt(0) : chainId,
+      proxyAddr,
+      nonce,
+      currentImplementation,
+      newImplementation,
+      callDataHash,
+      VALIDATOR_ADDRESS,
+    ]
+  );
+
+  return keccak256(encodedData);
 }
 
-// Create a raw signature without Ethereum prefix
-export async function signInitialization(
+export async function signSetImplementation(
   walletClient: WalletClient,
   hash: Hex
 ): Promise<Hex> {

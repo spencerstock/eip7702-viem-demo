@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { privateKeyToAccount } from "viem/accounts";
-import { createWalletClient, http, type Hex } from "viem";
+import { createWalletClient, http, type Hex, encodeFunctionData } from "viem";
 import { odysseyTestnet } from "@/app/lib/chains";
 import { eip7702Actions } from "viem/experimental";
+import { localAnvil } from "../../lib/wallet-utils";
+import { NEW_IMPLEMENTATION_ADDRESS, VALIDATOR_ADDRESS } from "../../lib/contracts";
 
 // This runs on the server, so it's safe to access the private key
 const RELAYER_PRIVATE_KEY = process.env.RELAYER_PRIVATE_KEY as Hex;
@@ -59,25 +61,34 @@ export async function POST(request: Request) {
         return Response.json({ hash });
       }
 
-      case "initialize": {
-        const { initArgs, initSignature } = body;
+      case "setImplementation": {
+        const { initArgs, signature } = body;
+        
         const hash = await relayerWallet.writeContract({
           address: targetAddress,
-          abi: [
-            {
-              type: "function",
-              name: "initialize",
-              inputs: [
-                { name: "args", type: "bytes" },
-                { name: "signature", type: "bytes" },
-              ],
-              outputs: [],
-              stateMutability: "payable",
-            },
-          ],
-          functionName: "initialize",
-          args: [initArgs, initSignature],
+          abi: [{
+            type: "function",
+            name: "setImplementation",
+            inputs: [
+              { name: "newImplementation", type: "address" },
+              { name: "callData", type: "bytes" },
+              { name: "validator", type: "address" },
+              { name: "signature", type: "bytes" },
+              { name: "allowCrossChainReplay", type: "bool" }
+            ],
+            outputs: [],
+            stateMutability: "payable"
+          }],
+          functionName: "setImplementation",
+          args: [
+            NEW_IMPLEMENTATION_ADDRESS,
+            initArgs,
+            VALIDATOR_ADDRESS,
+            signature,
+            false
+          ]
         });
+        
         return Response.json({ hash });
       }
 
