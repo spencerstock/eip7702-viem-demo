@@ -126,8 +126,10 @@ export function PasskeyVerification({
 
   const handleVerify = useCallback(async () => {
     try {
+      // Reset states for new transaction
       setVerifying(true);
       setSteps([]);
+      setIsVerified(false);
 
       // Create WebAuthn account
       console.log("Creating WebAuthn account from passkey...");
@@ -405,15 +407,13 @@ export function PasskeyVerification({
 
   return (
     <div className="flex flex-col items-center w-full max-w-5xl mx-auto mt-8">
-      {!isVerified && (
-        <button
-          onClick={handleVerify}
-          disabled={verifying}
-          className="px-6 py-3 text-lg font-semibold text-white bg-blue-500 rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed mb-8 w-64"
-        >
-          {verifying ? "Submitting userOp..." : "Transact using passkey"}
-        </button>
-      )}
+      <button
+        onClick={handleVerify}
+        disabled={verifying}
+        className="px-6 py-3 text-lg font-semibold text-white bg-blue-500 rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed mb-8 w-64"
+      >
+        {verifying ? "Working on userOp..." : "Transact using passkey"}
+      </button>
 
       <div className="w-full space-y-4">
         {steps.map((step, index) => (
@@ -424,6 +424,9 @@ export function PasskeyVerification({
       {isVerified && steps.every((step) => step.isComplete && !step.error) && (
         <div className="mt-8 text-center text-green-500 font-semibold text-lg">
           ✅ Successfully submitted a userOp with passkey owner!
+          <div className="mt-4 text-base text-gray-400">
+            You can submit another transaction using the button above.
+          </div>
         </div>
       )}
     </div>
