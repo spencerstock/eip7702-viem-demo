@@ -5,6 +5,7 @@ import { localAnvil, createEOAClient, type ExtendedAccount, getRelayerWalletClie
 import { NEW_IMPLEMENTATION_ADDRESS } from "../lib/contracts";
 
 const FOREIGN_DELEGATE = "0x5ee57314eFc8D76B9084BC6759A2152084392e18" as const;
+// const FOREIGN_DELEGATE = "0x88da98F3fd0525FFB85D03D29A21E49f5d48491f" as const;
 const FOREIGN_IMPLEMENTATION = "0xfFF02f902cC5B211D0e82bAEE767BdAbac7d21aa" as const;
 
 interface Props {
@@ -110,7 +111,8 @@ export function AccountDisruption({
       console.log("Sponsor:", relayerAddress);
       const authorization = await userWallet.signAuthorization({
         contractAddress: FOREIGN_DELEGATE,
-        chainId: 0
+        sponsor: true,
+        chainId: 0,
       });
       console.log("Created authorization:", {
         hasSignature: !!authorization,
@@ -118,13 +120,25 @@ export function AccountDisruption({
         targetAddress: smartWalletAddress,
       });
 
-      // Submit the transaction directly from the EOA wallet
-      console.log("Submitting transaction directly from EOA wallet...");
-      const hash = await userWallet.sendTransaction({
-        to: account.address,
-        value: BigInt(0),
-        authorizationList: [authorization],
+      // Submit via relay endpoint
+      console.log("Submitting via relay endpoint...");
+      const response = await fetch("/api/relay", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          operation: "delegate",
+          targetAddress: account.address,
+          authorizationList: [authorization],
+        }, (_, value) => 
+          typeof value === "bigint" ? value.toString() : value
+        ),
       });
+
+      if (!response.ok) {
+        throw new Error("Failed to submit delegation via relay");
+      }
+
+      const { hash } = await response.json();
       console.log("Transaction submitted:", hash);
 
       // Wait for transaction confirmation
