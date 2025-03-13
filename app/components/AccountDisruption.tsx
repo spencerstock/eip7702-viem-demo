@@ -49,12 +49,49 @@ export function AccountDisruption({
   const [implementationLoading, setImplementationLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Check state on component mount
+  // Separate effects for tracking delegate and implementation states
   useEffect(() => {
-    checkState();
-  }, []);
+    const checkDelegateState = async () => {
+      const publicClient = createPublicClient({
+        chain: useAnvil ? localAnvil : odysseyTestnet,
+        transport: http(),
+      });
 
-  // Function to check and update state
+      const code = await publicClient.getCode({ address: account.address });
+      console.log("\n=== Checking Delegate State ===");
+      console.log("Current bytecode:", code);
+      onStateChange(code || "0x", null); // Only update bytecode
+    };
+
+    checkDelegateState();
+  }, []); // Run once on mount
+
+  useEffect(() => {
+    const checkImplementationState = async () => {
+      const publicClient = createPublicClient({
+        chain: useAnvil ? localAnvil : odysseyTestnet,
+        transport: http(),
+      });
+
+      const slotValue = await publicClient.getStorageAt({ 
+        address: account.address,
+        slot: ERC1967_SLOT
+      });
+
+      // Format the slot value as an address (take last 20 bytes)
+      const implementationAddress = slotValue 
+        ? `0x${(slotValue as string).slice(-40)}` 
+        : "0x";
+
+      console.log("\n=== Checking Implementation State ===");
+      console.log("Current implementation:", implementationAddress);
+      onStateChange(null, implementationAddress); // Only update implementation
+    };
+
+    checkImplementationState();
+  }, []); // Run once on mount
+
+  // Function to check both states after disruption
   const checkState = async () => {
     const publicClient = createPublicClient({
       chain: useAnvil ? localAnvil : odysseyTestnet,
@@ -80,8 +117,9 @@ export function AccountDisruption({
     console.log("Current ERC-1967 slot value (raw):", slotValue || "0x");
     console.log("Current implementation address:", implementationAddress);
     
-    onStateChange(code || "0x", implementationAddress);
-    return { code: code || "0x", slotValue: implementationAddress };
+    // Call onStateChange twice to update each state independently
+    onStateChange(code || "0x", null); // Update delegate state
+    onStateChange(null, implementationAddress); // Update implementation state
   };
 
   const handleDelegateForeign = async () => {

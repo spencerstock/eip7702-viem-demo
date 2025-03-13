@@ -56,34 +56,36 @@ export default function Home() {
   };
 
   const handleStateChange = (bytecode: string | null, slotValue: string | null) => {
-    setCurrentBytecode(bytecode);
-    setCurrentSlotValue(slotValue);
+    // Update current values if they're provided
+    if (bytecode !== null) {
+      setCurrentBytecode(bytecode);
+      
+      // Check if delegate is disrupted by comparing bytecode with expected format
+      const expectedBytecode = `0xef0100${PROXY_TEMPLATE_ADDRESSES.odyssey.slice(2).toLowerCase()}`.toLowerCase();
+      const currentBytecode = bytecode.toLowerCase();
 
-    // Check if delegate is disrupted by comparing bytecode with expected format
-    const expectedBytecode = `0xef0100${PROXY_TEMPLATE_ADDRESSES.odyssey.slice(2).toLowerCase()}`.toLowerCase();
-    const currentBytecode = bytecode ? bytecode.toLowerCase() : null;
+      console.log("\n=== Delegate State Change ===");
+      console.log("Expected bytecode:", expectedBytecode);
+      console.log("Current bytecode:", currentBytecode);
+      console.log("Previous delegate state:", isDelegateDisrupted);
 
-    console.log("\n=== Bytecode Comparison ===");
-    console.log("Expected bytecode:", expectedBytecode);
-    console.log("Current bytecode:", currentBytecode);
-    console.log("Are they equal?", currentBytecode === expectedBytecode);
-    console.log("Current conditions:", {
-      isNotNull: currentBytecode !== null,
-      isNotEmpty: currentBytecode !== "0x",
-      isDifferent: currentBytecode !== expectedBytecode
-    });
+      const newDelegateDisrupted = currentBytecode !== "0x" && currentBytecode !== expectedBytecode;
+      console.log("Setting delegate disrupted to:", newDelegateDisrupted);
+      setIsDelegateDisrupted(newDelegateDisrupted);
+    }
 
-    setIsDelegateDisrupted(
-      currentBytecode !== null && 
-      currentBytecode !== "0x" && 
-      currentBytecode !== expectedBytecode
-    );
+    if (slotValue !== null) {
+      setCurrentSlotValue(slotValue);
 
-    // Check if implementation is disrupted
-    setIsImplementationDisrupted(
-      slotValue !== null && 
-      slotValue.toLowerCase() !== NEW_IMPLEMENTATION_ADDRESS.toLowerCase()
-    );
+      console.log("\n=== Implementation State Change ===");
+      console.log("Expected implementation:", NEW_IMPLEMENTATION_ADDRESS.toLowerCase());
+      console.log("Current implementation:", slotValue.toLowerCase());
+      console.log("Previous implementation state:", isImplementationDisrupted);
+
+      const newImplementationDisrupted = slotValue.toLowerCase() !== NEW_IMPLEMENTATION_ADDRESS.toLowerCase();
+      console.log("Setting implementation disrupted to:", newImplementationDisrupted);
+      setIsImplementationDisrupted(newImplementationDisrupted);
+    }
   };
 
   const handleUpgradeComplete = async (
