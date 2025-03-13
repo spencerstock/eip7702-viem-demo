@@ -4,7 +4,7 @@ import { odysseyTestnet } from "../lib/chains";
 import { localAnvil, createEOAClient, type ExtendedAccount, getRelayerWalletClient } from "../lib/wallet-utils";
 import { NEW_IMPLEMENTATION_ADDRESS } from "../lib/contracts";
 
-const FOREIGN_DELEGATE = "0xfFF02f902cC5B211D0e82bAEE767BdAbac7d21aa" as const;
+const FOREIGN_DELEGATE = "0x5ee57314eFc8D76B9084BC6759A2152084392e18" as const;
 const FOREIGN_IMPLEMENTATION = "0xfFF02f902cC5B211D0e82bAEE767BdAbac7d21aa" as const;
 
 interface Props {
@@ -26,6 +26,26 @@ export function AccountDisruption({
 }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [currentBytecode, setCurrentBytecode] = useState<string | null>(null);
+  const [lastChecked, setLastChecked] = useState<Date | null>(null);
+
+  // Function to check and update bytecode state
+  const checkBytecodeState = async () => {
+    const publicClient = createPublicClient({
+      chain: useAnvil ? localAnvil : odysseyTestnet,
+      transport: http(),
+    });
+
+    const code = await publicClient.getCode({ address: account.address });
+    console.log("\n=== Current EOA State ===");
+    console.log("EOA address:", account.address);
+    console.log("Current bytecode:", code || "0x");
+    console.log("Bytecode length:", code ? (code.length - 2) / 2 : 0, "bytes");
+    
+    setCurrentBytecode(code || "0x");
+    setLastChecked(new Date());
+    return code || "0x";
+  };
 
   const handleDelegateForeign = async () => {
     try {
@@ -38,6 +58,10 @@ export function AccountDisruption({
         address: account.address,
         hasPrivateKey: !!account._privateKey,
       });
+
+      // Get initial bytecode state
+      console.log("\n=== Checking initial bytecode state ===");
+      const initialCode = await checkBytecodeState();
 
       // Get the relayer address
       const relayerAddress = useAnvil
@@ -86,8 +110,6 @@ export function AccountDisruption({
       console.log("Sponsor:", relayerAddress);
       const authorization = await userWallet.signAuthorization({
         contractAddress: FOREIGN_DELEGATE,
-        sponsor: relayerAddress,
-        nonce: 1,
         chainId: 0
       });
       console.log("Created authorization:", {
@@ -109,15 +131,13 @@ export function AccountDisruption({
       const receipt = await publicClient.waitForTransactionReceipt({ hash });
       console.log("Transaction receipt:", receipt);
 
-      // Check the current bytecode after delegation
-      const code = await publicClient.getCode({ address: smartWalletAddress });
-      console.log("\n=== Post-delegation state ===");
-      console.log("Smart wallet address:", smartWalletAddress);
-      if (code) {
-        console.log("Current bytecode:", code);
-        console.log("Bytecode length:", (code.length - 2) / 2, "bytes");
-      } else {
-        console.log("No bytecode found (undefined)");
+      // Check the final bytecode state
+      console.log("\n=== Checking final bytecode state ===");
+      const finalCode = await checkBytecodeState();
+
+      // Compare bytecode states
+      if (finalCode === initialCode) {
+        console.warn("⚠️ Warning: Bytecode did not change after delegation attempt");
       }
 
       onDisruptionComplete('delegate');
@@ -134,6 +154,10 @@ export function AccountDisruption({
       setLoading(true);
       setError(null);
 
+      // Get initial bytecode state
+      console.log("\n=== Checking initial bytecode state ===");
+      const initialCode = await checkBytecodeState();
+
       // Call upgradeToAndCall directly on the EOA
       const response = await fetch("/api/relay", {
         method: "POST",
@@ -149,10 +173,32 @@ export function AccountDisruption({
         throw new Error("Failed to set foreign implementation");
       }
 
+      // Check final bytecode state
+      console.log("\n=== Checking final bytecode state ===");
+      const finalCode = await checkBytecodeState();
+
+      // Compare bytecode states
+      if (finalCode === initialCode) {
+        console.warn("⚠️ Warning: Bytecode did not change after implementation change attempt");
+      }
+
       onDisruptionComplete('implementation');
     } catch (error: any) {
       console.error("Failed to set implementation:", error);
       setError(error.message || "Failed to set foreign implementation");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Add a refresh button handler
+  const handleRefreshState = async () => {
+    try {
+      setLoading(true);
+      await checkBytecodeState();
+    } catch (error: any) {
+      console.error("Failed to refresh state:", error);
+      setError(error.message || "Failed to refresh state");
     } finally {
       setLoading(false);
     }
@@ -179,21 +225,37 @@ export function AccountDisruption({
           >
             {loading ? "Setting..." : "Set Foreign Implementation"}
           </button>
+
+          <button
+            onClick={handleRefreshState}
+            disabled={loading}
+            className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50"
+          >
+            {loading ? "Refreshing..." : "Refresh State"}
+          </button>
         </div>
 
-        {(isDelegateDisrupted || isImplementationDisrupted) && (
-          <div className="mt-4 p-4 bg-red-900/30 rounded-lg w-full">
-            <h4 className="text-lg font-semibold text-red-400 mb-2">Current Disruption Status:</h4>
-            <ul className="list-disc list-inside text-red-300">
-              {isDelegateDisrupted && (
-                <li>Account is delegated to a foreign address ({FOREIGN_DELEGATE})</li>
-              )}
-              {isImplementationDisrupted && (
-                <li>Account is using a foreign implementation ({FOREIGN_IMPLEMENTATION})</li>
-              )}
-            </ul>
+        <div className="mt-4 p-4 bg-gray-900/30 rounded-lg w-full">
+          <h4 className="text-lg font-semibold text-blue-400 mb-2">Current EOA State:</h4>
+          <div className="font-mono text-sm break-all">
+            <p className="text-gray-400 mb-2">Address: <span className="text-green-400">{account.address}</span></p>
+            <p className="text-gray-400 mb-2">Bytecode: {
+              currentBytecode 
+                ? <span className="text-green-400">{currentBytecode}</span>
+                : <span className="text-yellow-400">Not checked yet</span>
+            }</p>
+            <p className="text-gray-400 mb-2">Bytecode Length: {
+              currentBytecode 
+                ? <span className="text-green-400">{(currentBytecode.length - 2) / 2} bytes</span>
+                : <span className="text-yellow-400">Unknown</span>
+            }</p>
+            <p className="text-gray-400">Last Checked: {
+              lastChecked 
+                ? <span className="text-green-400">{lastChecked.toLocaleTimeString()}</span>
+                : <span className="text-yellow-400">Never</span>
+            }</p>
           </div>
-        )}
+        </div>
 
         {error && (
           <div className="mt-4 text-red-400">
