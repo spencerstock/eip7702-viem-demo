@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { type Address, createPublicClient, http, type Hex } from "viem";
 import { odysseyTestnet } from "../lib/chains";
 import { localAnvil, createEOAClient, type ExtendedAccount, getRelayerWalletClient } from "../lib/wallet-utils";
@@ -7,6 +7,7 @@ import { NEW_IMPLEMENTATION_ADDRESS } from "../lib/contracts";
 const FOREIGN_DELEGATE = "0x5ee57314eFc8D76B9084BC6759A2152084392e18" as const;
 // const FOREIGN_DELEGATE = "0x88da98F3fd0525FFB85D03D29A21E49f5d48491f" as const;
 const FOREIGN_IMPLEMENTATION = "0xfFF02f902cC5B211D0e82bAEE767BdAbac7d21aa" as const;
+const ERC1967_SLOT = "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc" as const;
 
 interface Props {
   account: ExtendedAccount;
@@ -25,32 +26,51 @@ export function AccountDisruption({
   isDelegateDisrupted,
   isImplementationDisrupted,
 }: Props) {
-  const [loading, setLoading] = useState(false);
+  const [delegateLoading, setDelegateLoading] = useState(false);
+  const [implementationLoading, setImplementationLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [currentBytecode, setCurrentBytecode] = useState<string | null>(null);
-  const [lastChecked, setLastChecked] = useState<Date | null>(null);
+  const [currentSlotValue, setCurrentSlotValue] = useState<string | null>(null);
 
-  // Function to check and update bytecode state
-  const checkBytecodeState = async () => {
+  // Function to check and update state
+  const checkState = async () => {
     const publicClient = createPublicClient({
       chain: useAnvil ? localAnvil : odysseyTestnet,
       transport: http(),
     });
 
-    const code = await publicClient.getCode({ address: account.address });
+    const [code, slotValue] = await Promise.all([
+      publicClient.getCode({ address: account.address }),
+      publicClient.getStorageAt({ 
+        address: account.address,
+        slot: ERC1967_SLOT
+      })
+    ]);
+
+    // Format the slot value as an address (take last 20 bytes)
+    const implementationAddress = slotValue 
+      ? `0x${(slotValue as string).slice(-40)}` 
+      : "0x";
+
     console.log("\n=== Current EOA State ===");
     console.log("EOA address:", account.address);
     console.log("Current bytecode:", code || "0x");
-    console.log("Bytecode length:", code ? (code.length - 2) / 2 : 0, "bytes");
+    console.log("Current ERC-1967 slot value (raw):", slotValue || "0x");
+    console.log("Current implementation address:", implementationAddress);
     
     setCurrentBytecode(code || "0x");
-    setLastChecked(new Date());
-    return code || "0x";
+    setCurrentSlotValue(implementationAddress);
+    return { code: code || "0x", slotValue: implementationAddress };
   };
+
+  // Check state on component mount
+  useEffect(() => {
+    checkState();
+  }, []);
 
   const handleDelegateForeign = async () => {
     try {
-      setLoading(true);
+      setDelegateLoading(true);
       setError(null);
 
       // Create user's wallet client for signing
@@ -60,9 +80,9 @@ export function AccountDisruption({
         hasPrivateKey: !!account._privateKey,
       });
 
-      // Get initial bytecode state
-      console.log("\n=== Checking initial bytecode state ===");
-      const initialCode = await checkBytecodeState();
+      // Get initial state
+      console.log("\n=== Checking initial state ===");
+      const initialState = await checkState();
 
       // Get the relayer address
       const relayerAddress = useAnvil
@@ -145,12 +165,12 @@ export function AccountDisruption({
       const receipt = await publicClient.waitForTransactionReceipt({ hash });
       console.log("Transaction receipt:", receipt);
 
-      // Check the final bytecode state
-      console.log("\n=== Checking final bytecode state ===");
-      const finalCode = await checkBytecodeState();
+      // Check the final state
+      console.log("\n=== Checking final state ===");
+      const finalState = await checkState();
 
-      // Compare bytecode states
-      if (finalCode === initialCode) {
+      // For delegation, check if bytecode changed
+      if (finalState.code === initialState.code) {
         console.warn("⚠️ Warning: Bytecode did not change after delegation attempt");
       }
 
@@ -159,18 +179,18 @@ export function AccountDisruption({
       console.error("Failed to delegate:", error);
       setError(error.message || "Failed to delegate to foreign address");
     } finally {
-      setLoading(false);
+      setDelegateLoading(false);
     }
   };
 
   const handleSetForeignImplementation = async () => {
     try {
-      setLoading(true);
+      setImplementationLoading(true);
       setError(null);
 
-      // Get initial bytecode state
-      console.log("\n=== Checking initial bytecode state ===");
-      const initialCode = await checkBytecodeState();
+      // Get initial state
+      console.log("\n=== Checking initial state ===");
+      const initialState = await checkState();
 
       // Call upgradeToAndCall directly on the EOA
       const response = await fetch("/api/relay", {
@@ -187,13 +207,13 @@ export function AccountDisruption({
         throw new Error("Failed to set foreign implementation");
       }
 
-      // Check final bytecode state
-      console.log("\n=== Checking final bytecode state ===");
-      const finalCode = await checkBytecodeState();
+      // Check final state
+      console.log("\n=== Checking final state ===");
+      const finalState = await checkState();
 
-      // Compare bytecode states
-      if (finalCode === initialCode) {
-        console.warn("⚠️ Warning: Bytecode did not change after implementation change attempt");
+      // For implementation change, check if ERC-1967 slot value changed
+      if (finalState.slotValue === initialState.slotValue) {
+        console.warn("⚠️ Warning: ERC-1967 slot value did not change after implementation change attempt");
       }
 
       onDisruptionComplete('implementation');
@@ -201,20 +221,7 @@ export function AccountDisruption({
       console.error("Failed to set implementation:", error);
       setError(error.message || "Failed to set foreign implementation");
     } finally {
-      setLoading(false);
-    }
-  };
-
-  // Add a refresh button handler
-  const handleRefreshState = async () => {
-    try {
-      setLoading(true);
-      await checkBytecodeState();
-    } catch (error: any) {
-      console.error("Failed to refresh state:", error);
-      setError(error.message || "Failed to refresh state");
-    } finally {
-      setLoading(false);
+      setImplementationLoading(false);
     }
   };
 
@@ -226,47 +233,33 @@ export function AccountDisruption({
         <div className="flex gap-4">
           <button
             onClick={handleDelegateForeign}
-            disabled={loading}
+            disabled={delegateLoading}
             className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 disabled:opacity-50"
           >
-            {loading ? "Delegating..." : "Delegate to Foreign Address"}
+            {delegateLoading ? "Delegating..." : "7702-Delegate to Foreign Delegate"}
           </button>
 
           <button
             onClick={handleSetForeignImplementation}
-            disabled={loading || isImplementationDisrupted}
+            disabled={implementationLoading || isImplementationDisrupted}
             className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 disabled:opacity-50"
           >
-            {loading ? "Setting..." : "Set Foreign Implementation"}
-          </button>
-
-          <button
-            onClick={handleRefreshState}
-            disabled={loading}
-            className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50"
-          >
-            {loading ? "Refreshing..." : "Refresh State"}
+            {implementationLoading ? "Setting..." : "Set Foreign ERC-1967 Implementation"}
           </button>
         </div>
 
         <div className="mt-4 p-4 bg-gray-900/30 rounded-lg w-full">
           <h4 className="text-lg font-semibold text-blue-400 mb-2">Current EOA State:</h4>
           <div className="font-mono text-sm break-all">
-            <p className="text-gray-400 mb-2">Address: <span className="text-green-400">{account.address}</span></p>
             <p className="text-gray-400 mb-2">Bytecode: {
               currentBytecode 
                 ? <span className="text-green-400">{currentBytecode}</span>
                 : <span className="text-yellow-400">Not checked yet</span>
             }</p>
-            <p className="text-gray-400 mb-2">Bytecode Length: {
-              currentBytecode 
-                ? <span className="text-green-400">{(currentBytecode.length - 2) / 2} bytes</span>
-                : <span className="text-yellow-400">Unknown</span>
-            }</p>
-            <p className="text-gray-400">Last Checked: {
-              lastChecked 
-                ? <span className="text-green-400">{lastChecked.toLocaleTimeString()}</span>
-                : <span className="text-yellow-400">Never</span>
+            <p className="text-gray-400">Implementation Address: {
+              currentSlotValue 
+                ? <span className="text-green-400">{currentSlotValue}</span>
+                : <span className="text-yellow-400">Not checked yet</span>
             }</p>
           </div>
         </div>
