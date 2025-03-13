@@ -3,6 +3,7 @@ import { type Address, createPublicClient, http, type Hex, encodeFunctionData } 
 import { odysseyTestnet } from "../lib/chains";
 import { localAnvil, createEOAClient, type ExtendedAccount, getRelayerWalletClient } from "../lib/wallet-utils";
 import { NEW_IMPLEMENTATION_ADDRESS, PROXY_TEMPLATE_ADDRESSES } from "../lib/contracts";
+import { AccountState } from "./AccountState";
 
 const FOREIGN_DELEGATE = "0x5ee57314eFc8D76B9084BC6759A2152084392e18" as const; // old EIP7702Proxy version
 // const FOREIGN_DELEGATE = "0x88da98F3fd0525FFB85D03D29A21E49f5d48491f" as const;
@@ -12,6 +13,15 @@ const FOREIGN_IMPLEMENTATION = "0xbAaaB2feecd974717816FA5ac540D96ad12eb342" as c
 
 const ERC1967_SLOT = "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc" as const;
 
+// EIP-7702 magic prefix
+const MAGIC_PREFIX = "0xef0100" as const;
+
+// Helper to check if bytecode is correct (includes magic prefix)
+const isCorrectBytecode = (bytecode: string) => {
+  const expectedBytecode = `${MAGIC_PREFIX}${PROXY_TEMPLATE_ADDRESSES.odyssey.slice(2).toLowerCase()}`;
+  return bytecode.toLowerCase() === expectedBytecode.toLowerCase();
+};
+
 interface Props {
   account: ExtendedAccount;
   smartWalletAddress: Address;
@@ -19,6 +29,9 @@ interface Props {
   onDisruptionComplete: (type: 'delegate' | 'implementation') => void;
   isDelegateDisrupted: boolean;
   isImplementationDisrupted: boolean;
+  currentBytecode: string | null;
+  currentSlotValue: string | null;
+  onStateChange: (bytecode: string | null, slotValue: string | null) => void;
 }
 
 export function AccountDisruption({
@@ -28,12 +41,18 @@ export function AccountDisruption({
   onDisruptionComplete,
   isDelegateDisrupted,
   isImplementationDisrupted,
+  currentBytecode,
+  currentSlotValue,
+  onStateChange,
 }: Props) {
   const [delegateLoading, setDelegateLoading] = useState(false);
   const [implementationLoading, setImplementationLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [currentBytecode, setCurrentBytecode] = useState<string | null>(null);
-  const [currentSlotValue, setCurrentSlotValue] = useState<string | null>(null);
+
+  // Check state on component mount
+  useEffect(() => {
+    checkState();
+  }, []);
 
   // Function to check and update state
   const checkState = async () => {
@@ -61,15 +80,9 @@ export function AccountDisruption({
     console.log("Current ERC-1967 slot value (raw):", slotValue || "0x");
     console.log("Current implementation address:", implementationAddress);
     
-    setCurrentBytecode(code || "0x");
-    setCurrentSlotValue(implementationAddress);
+    onStateChange(code || "0x", implementationAddress);
     return { code: code || "0x", slotValue: implementationAddress };
   };
-
-  // Check state on component mount
-  useEffect(() => {
-    checkState();
-  }, []);
 
   const handleDelegateForeign = async () => {
     try {
@@ -299,7 +312,7 @@ export function AccountDisruption({
         <div className="flex gap-4">
           <button
             onClick={handleDelegateForeign}
-            disabled={delegateLoading || (!!currentBytecode && (currentBytecode === "0x" || currentBytecode !== PROXY_TEMPLATE_ADDRESSES.odyssey))}
+            disabled={delegateLoading || !currentBytecode || !isCorrectBytecode(currentBytecode)}
             className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 disabled:opacity-50"
           >
             {delegateLoading ? "Delegating..." : "7702-Delegate to Foreign Delegate"}
@@ -314,29 +327,10 @@ export function AccountDisruption({
           </button>
         </div>
 
-        <div className="mt-4 p-4 bg-gray-900/30 rounded-lg w-full">
-          <h4 className="text-lg font-semibold text-blue-400 mb-2">Current EOA State:</h4>
-          <div className="font-mono text-sm break-all">
-            <p className="text-gray-400 mb-2">
-              Bytecode: {
-                currentBytecode 
-                  ? <span className={currentBytecode === "0x" || currentBytecode !== PROXY_TEMPLATE_ADDRESSES.odyssey ? "text-red-400" : "text-green-400"}>
-                      {currentBytecode}
-                    </span>
-                  : <span className="text-yellow-400">Not checked yet</span>
-              }
-            </p>
-            <p className="text-gray-400">
-              Implementation Address: {
-                currentSlotValue 
-                  ? <span className={currentSlotValue.toLowerCase() !== NEW_IMPLEMENTATION_ADDRESS.toLowerCase() ? "text-red-400" : "text-green-400"}>
-                      {currentSlotValue}
-                    </span>
-                  : <span className="text-yellow-400">Not checked yet</span>
-              }
-            </p>
-          </div>
-        </div>
+        <AccountState 
+          currentBytecode={currentBytecode}
+          currentSlotValue={currentSlotValue}
+        />
 
         {error && (
           <div className="mt-4 text-red-400">

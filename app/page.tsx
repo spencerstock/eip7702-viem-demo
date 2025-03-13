@@ -7,6 +7,7 @@ import { type ExtendedAccount } from "./lib/wallet-utils";
 import { odysseyTestnet } from "./lib/chains";
 import { type P256Credential } from "viem/account-abstraction";
 import { AccountDisruption } from "./components/AccountDisruption";
+import { AccountState } from "./components/AccountState";
 
 export default function Home() {
   const [resetKey, setResetKey] = useState(0);
@@ -19,6 +20,8 @@ export default function Home() {
   const [passkey, setPasskey] = useState<P256Credential | null>(null);
   const [isDelegateDisrupted, setIsDelegateDisrupted] = useState(false);
   const [isImplementationDisrupted, setIsImplementationDisrupted] = useState(false);
+  const [currentBytecode, setCurrentBytecode] = useState<string | null>(null);
+  const [currentSlotValue, setCurrentSlotValue] = useState<string | null>(null);
 
   const handleReset = () => {
     setWalletAddress(null);
@@ -30,6 +33,8 @@ export default function Home() {
     setPasskey(null);
     setIsDelegateDisrupted(false);
     setIsImplementationDisrupted(false);
+    setCurrentBytecode(null);
+    setCurrentSlotValue(null);
     setResetKey((prev) => prev + 1);
   };
 
@@ -48,6 +53,11 @@ export default function Home() {
     setIsImplementationDisrupted(false);
   };
 
+  const handleStateChange = (bytecode: string | null, slotValue: string | null) => {
+    setCurrentBytecode(bytecode);
+    setCurrentSlotValue(slotValue);
+  };
+
   const handleUpgradeComplete = async (
     address: `0x${string}`,
     upgradeHash: string,
@@ -56,6 +66,7 @@ export default function Home() {
     setUpgradeTxHash(upgradeHash);
     setBytecode(code);
     setIsUpgradeConfirmed(true);
+    setCurrentBytecode(code);
   };
 
   return (
@@ -179,6 +190,9 @@ export default function Home() {
           onDisruptionComplete={handleDisruptionComplete}
           isDelegateDisrupted={isDelegateDisrupted}
           isImplementationDisrupted={isImplementationDisrupted}
+          currentBytecode={currentBytecode}
+          currentSlotValue={currentSlotValue}
+          onStateChange={handleStateChange}
         />
       )}
 
@@ -190,6 +204,7 @@ export default function Home() {
           isDelegateDisrupted={isDelegateDisrupted}
           isImplementationDisrupted={isImplementationDisrupted}
           onRecoveryComplete={handleRecoveryComplete}
+          onStateChange={handleStateChange}
         />
       )}
 

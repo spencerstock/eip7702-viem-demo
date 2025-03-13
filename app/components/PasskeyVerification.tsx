@@ -29,6 +29,7 @@ type Props = {
   isDelegateDisrupted: boolean;
   isImplementationDisrupted: boolean;
   onRecoveryComplete: () => void;
+  onStateChange: (bytecode: string | null, slotValue: string | null) => void;
 };
 
 const waitForTransaction = async (
@@ -122,6 +123,7 @@ export function PasskeyVerification({
   isDelegateDisrupted,
   isImplementationDisrupted,
   onRecoveryComplete,
+  onStateChange,
 }: Props) {
   const [verifying, setVerifying] = useState(false);
   const [steps, setSteps] = useState<VerificationStep[]>([]);
@@ -137,6 +139,29 @@ export function PasskeyVerification({
 
   const addStep = (step: VerificationStep) => {
     setSteps((current) => [...current, step]);
+  };
+
+  // Add a function to check state
+  const checkState = async () => {
+    const publicClient = createPublicClient({
+      chain: useAnvil ? localAnvil : odysseyTestnet,
+      transport: http(),
+    });
+
+    const [code, slotValue] = await Promise.all([
+      publicClient.getCode({ address: smartWalletAddress }),
+      publicClient.getStorageAt({ 
+        address: smartWalletAddress,
+        slot: ERC1967_IMPLEMENTATION_SLOT
+      })
+    ]);
+
+    // Format the slot value as an address (take last 20 bytes)
+    const implementationAddress = slotValue 
+      ? `0x${(slotValue as string).slice(-40)}` 
+      : "0x";
+
+    onStateChange(code || "0x", implementationAddress);
   };
 
   const handleVerify = useCallback(async () => {
@@ -472,6 +497,7 @@ export function PasskeyVerification({
         });
 
         await waitForTransaction(delegateHash, chain);
+        await checkState(); // Update state after delegate reset
         updateStep(1, {
           status: "Successfully reset delegate",
           isComplete: true,
@@ -583,6 +609,7 @@ export function PasskeyVerification({
         });
 
         await waitForTransaction(implementationHash, chain);
+        await checkState(); // Update state after implementation reset
         updateStep(stepIndex, {
           status: "Successfully reset implementation",
           isComplete: true,
