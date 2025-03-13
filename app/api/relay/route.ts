@@ -144,32 +144,6 @@ export async function POST(request: Request) {
         return Response.json({ hash });
       }
 
-      case "setForeignImplementation": {
-        const { implementation } = body;
-        
-        // Call upgradeToAndCall directly on the EOA
-        const hash = await relayerWallet.sendTransaction({
-          to: targetAddress,
-          value: BigInt(0),
-          data: encodeFunctionData({
-            abi: [{
-              type: "function",
-              name: "upgradeToAndCall",
-              inputs: [
-                { name: "newImplementation", type: "address" },
-                { name: "data", type: "bytes" }
-              ],
-              outputs: [],
-              stateMutability: "nonpayable"
-            }],
-            functionName: "upgradeToAndCall",
-            args: [implementation, "0x"]
-          })
-        });
-        
-        return Response.json({ hash });
-      }
-
       case "resetDelegate": {
         const { authorizationList } = body;
         

@@ -1,12 +1,15 @@
 import { useState, useEffect } from "react";
-import { type Address, createPublicClient, http, type Hex } from "viem";
+import { type Address, createPublicClient, http, type Hex, encodeFunctionData } from "viem";
 import { odysseyTestnet } from "../lib/chains";
 import { localAnvil, createEOAClient, type ExtendedAccount, getRelayerWalletClient } from "../lib/wallet-utils";
 import { NEW_IMPLEMENTATION_ADDRESS } from "../lib/contracts";
 
-const FOREIGN_DELEGATE = "0x5ee57314eFc8D76B9084BC6759A2152084392e18" as const;
+const FOREIGN_DELEGATE = "0x5ee57314eFc8D76B9084BC6759A2152084392e18" as const; // old EIP7702Proxy version
 // const FOREIGN_DELEGATE = "0x88da98F3fd0525FFB85D03D29A21E49f5d48491f" as const;
-const FOREIGN_IMPLEMENTATION = "0xfFF02f902cC5B211D0e82bAEE767BdAbac7d21aa" as const;
+
+const FOREIGN_IMPLEMENTATION = "0xbAaaB2feecd974717816FA5ac540D96ad12eb342" as const; // payable MockImplementation, no owner check on upgradeToAndCall
+// const FOREIGN_IMPLEMENTATION = "0x3e0BecB45eBf7Bd1e3943b9521264Bc5B0bd8Ca9" as const; // new implementation
+
 const ERC1967_SLOT = "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc" as const;
 
 interface Props {
@@ -186,26 +189,88 @@ export function AccountDisruption({
   const handleSetForeignImplementation = async () => {
     try {
       setImplementationLoading(true);
-      setError(null);
+      
+      // Create user's wallet client for signing
+      const userWallet = createEOAClient(account, useAnvil);
+      console.log("EOA account for signing:", {
+        address: account.address,
+        hasPrivateKey: !!account._privateKey,
+      });
 
-      // Get initial state
+      // Get initial state for comparison
       console.log("\n=== Checking initial state ===");
       const initialState = await checkState();
 
-      // Call upgradeToAndCall directly on the EOA
-      const response = await fetch("/api/relay", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          operation: "setForeignImplementation",
-          targetAddress: smartWalletAddress,
-          implementation: FOREIGN_IMPLEMENTATION,
-        }),
+      // Create public client for balance check and transaction monitoring
+      const publicClient = createPublicClient({
+        chain: useAnvil ? localAnvil : odysseyTestnet,
+        transport: http(),
       });
 
-      if (!response.ok) {
-        throw new Error("Failed to set foreign implementation");
+      // Check EOA balance and fund if needed
+      const balance = await publicClient.getBalance({ address: account.address });
+      console.log("Current EOA balance:", balance.toString(), "wei");
+      
+      const requiredBalance = BigInt(600000000000000); // 0.0006 ETH in wei
+      if (balance < requiredBalance) {
+        const fundingAmount = requiredBalance - balance;
+        console.log(`Funding EOA with ${fundingAmount.toString()} wei...`);
+        const fundResponse = await fetch("/api/relay", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            operation: "fund",
+            targetAddress: account.address,
+            value: fundingAmount.toString(),
+          }),
+        });
+        
+        if (!fundResponse.ok) {
+          throw new Error("Failed to fund EOA wallet");
+        }
+        
+        const { hash } = await fundResponse.json();
+        console.log("Funding transaction submitted:", hash);
+        await publicClient.waitForTransactionReceipt({ hash });
+        
+        const newBalance = await publicClient.getBalance({ address: account.address });
+        console.log("New EOA balance:", newBalance.toString(), "wei");
+      } else {
+        console.log("EOA has sufficient balance, no funding needed");
       }
+
+      // Submit upgradeToAndCall directly from the EOA
+      console.log("\n=== Submitting upgradeToAndCall ===");
+      console.log("EOA address:", account.address);
+      console.log("Target implementation:", FOREIGN_IMPLEMENTATION);
+      
+      const hash = await userWallet.sendTransaction({
+        to: account.address,
+        data: encodeFunctionData({
+          abi: [{
+            type: "function",
+            name: "upgradeToAndCall",
+            inputs: [
+              { name: "newImplementation", type: "address" },
+              { name: "data", type: "bytes" }
+            ],
+            outputs: [],
+            stateMutability: "nonpayable"
+          }],
+          functionName: "upgradeToAndCall",
+          args: [FOREIGN_IMPLEMENTATION, "0x"]
+        }),
+        gas: BigInt(500000), // Much higher gas limit for contract deployment
+        maxFeePerGas: BigInt(1100000327), // 1.100000327 gwei
+        maxPriorityFeePerGas: BigInt(1100000025), // 1.100000025 gwei
+        value: BigInt(0)
+      });
+      
+      console.log("Transaction submitted:", hash);
+
+      // Wait for transaction confirmation
+      const receipt = await publicClient.waitForTransactionReceipt({ hash });
+      console.log("Transaction receipt:", receipt);
 
       // Check final state
       console.log("\n=== Checking final state ===");
@@ -217,8 +282,9 @@ export function AccountDisruption({
       }
 
       onDisruptionComplete('implementation');
+      
     } catch (error: any) {
-      console.error("Failed to set implementation:", error);
+      console.error("Error setting foreign implementation:", error);
       setError(error.message || "Failed to set foreign implementation");
     } finally {
       setImplementationLoading(false);
@@ -241,7 +307,7 @@ export function AccountDisruption({
 
           <button
             onClick={handleSetForeignImplementation}
-            disabled={implementationLoading || isImplementationDisrupted}
+            disabled={implementationLoading}
             className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 disabled:opacity-50"
           >
             {implementationLoading ? "Setting..." : "Set Foreign ERC-1967 Implementation"}
