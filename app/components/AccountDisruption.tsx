@@ -60,7 +60,7 @@ export function AccountDisruption({
       const code = await publicClient.getCode({ address: account.address });
       console.log("\n=== Checking Delegate State ===");
       console.log("Current bytecode:", code);
-      onStateChange(code || "0x", null); // Only update bytecode
+      onStateChange(code || "0x", currentSlotValue); // Preserve current implementation state
     };
 
     checkDelegateState();
@@ -85,7 +85,7 @@ export function AccountDisruption({
 
       console.log("\n=== Checking Implementation State ===");
       console.log("Current implementation:", implementationAddress);
-      onStateChange(null, implementationAddress); // Only update implementation
+      onStateChange(currentBytecode, implementationAddress); // Preserve current bytecode state
     };
 
     checkImplementationState();
@@ -117,9 +117,13 @@ export function AccountDisruption({
     console.log("Current ERC-1967 slot value (raw):", slotValue || "0x");
     console.log("Current implementation address:", implementationAddress);
     
-    // Call onStateChange twice to update each state independently
-    onStateChange(code || "0x", null); // Update delegate state
-    onStateChange(null, implementationAddress); // Update implementation state
+    // Update both states at once to avoid race conditions
+    onStateChange(code || "0x", implementationAddress);
+
+    return {
+      code: code || "0x",
+      slotValue: implementationAddress
+    };
   };
 
   const handleDelegateForeign = async () => {

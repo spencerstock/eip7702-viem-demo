@@ -43,10 +43,8 @@ export default function Home() {
   const handleDisruptionComplete = (type: 'delegate' | 'implementation') => {
     if (type === 'delegate') {
       setIsDelegateDisrupted(true);
-      setIsImplementationDisrupted(false);
     } else {
       setIsImplementationDisrupted(true);
-      setIsDelegateDisrupted(false);
     }
   };
 

@@ -657,7 +657,7 @@ export function PasskeyVerification({
         // Create and sign the setImplementation hash
         const chainId = useAnvil ? localAnvil.id : odysseyTestnet.id;
         const setImplementationHash = createSetImplementationHash(
-          smartWalletAddress,
+          EIP7702ProxyAddresses[useAnvil ? 'anvil' : 'odyssey'],
           NEW_IMPLEMENTATION_ADDRESS,
           "0x", // No initialization needed for reset
           nonce,
