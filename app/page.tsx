@@ -6,6 +6,7 @@ import { PasskeyVerification } from "./components/PasskeyVerification";
 import { type ExtendedAccount } from "./lib/wallet-utils";
 import { odysseyTestnet } from "./lib/chains";
 import { type P256Credential } from "viem/account-abstraction";
+import { AccountDisruption } from "./components/AccountDisruption";
 
 export default function Home() {
   const [resetKey, setResetKey] = useState(0);
@@ -16,6 +17,8 @@ export default function Home() {
   const [isUpgradeConfirmed, setIsUpgradeConfirmed] = useState(false);
   const [account, setAccount] = useState<ExtendedAccount | null>(null);
   const [passkey, setPasskey] = useState<P256Credential | null>(null);
+  const [isDelegateDisrupted, setIsDelegateDisrupted] = useState(false);
+  const [isImplementationDisrupted, setIsImplementationDisrupted] = useState(false);
 
   const handleReset = () => {
     setWalletAddress(null);
@@ -25,7 +28,24 @@ export default function Home() {
     setIsUpgradeConfirmed(false);
     setAccount(null);
     setPasskey(null);
+    setIsDelegateDisrupted(false);
+    setIsImplementationDisrupted(false);
     setResetKey((prev) => prev + 1);
+  };
+
+  const handleDisruptionComplete = (type: 'delegate' | 'implementation') => {
+    if (type === 'delegate') {
+      setIsDelegateDisrupted(true);
+      setIsImplementationDisrupted(false);
+    } else {
+      setIsImplementationDisrupted(true);
+      setIsDelegateDisrupted(false);
+    }
+  };
+
+  const handleRecoveryComplete = () => {
+    setIsDelegateDisrupted(false);
+    setIsImplementationDisrupted(false);
   };
 
   const handleUpgradeComplete = async (
@@ -151,11 +171,25 @@ export default function Home() {
         </div>
       )}
 
+      {isUpgradeConfirmed && account && walletAddress && (
+        <AccountDisruption
+          account={account}
+          smartWalletAddress={walletAddress as `0x${string}`}
+          useAnvil={false}
+          onDisruptionComplete={handleDisruptionComplete}
+          isDelegateDisrupted={isDelegateDisrupted}
+          isImplementationDisrupted={isImplementationDisrupted}
+        />
+      )}
+
       {isUpgradeConfirmed && walletAddress && passkey && (
         <PasskeyVerification
           smartWalletAddress={walletAddress as `0x${string}`}
           passkey={passkey}
           useAnvil={false}
+          isDelegateDisrupted={isDelegateDisrupted}
+          isImplementationDisrupted={isImplementationDisrupted}
+          onRecoveryComplete={handleRecoveryComplete}
         />
       )}
 

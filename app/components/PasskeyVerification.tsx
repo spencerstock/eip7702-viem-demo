@@ -5,11 +5,14 @@ import {
   toWebAuthnAccount,
   toCoinbaseSmartAccount,
   type UserOperation,
+  type WebAuthnAccount,
 } from "viem/account-abstraction";
 import { odysseyTestnet } from "../lib/chains";
-import { localAnvil } from "../lib/wallet-utils";
+import { localAnvil, createSetImplementationHash, type ExtendedAccount } from "../lib/wallet-utils";
 import { EntryPointAddress, EntryPointAbi } from "../lib/abi/EntryPoint";
 import { serializeBigInts } from "../lib/smart-account";
+import { RecoveryModal } from "./RecoveryModal";
+import { NEW_IMPLEMENTATION_ADDRESS } from "../lib/contracts";
 
 type VerificationStep = {
   status: string;
@@ -23,6 +26,9 @@ type Props = {
   smartWalletAddress: Address;
   passkey: P256Credential;
   useAnvil?: boolean;
+  isDelegateDisrupted: boolean;
+  isImplementationDisrupted: boolean;
+  onRecoveryComplete: () => void;
 };
 
 const waitForTransaction = async (
@@ -104,14 +110,23 @@ function StepDisplay({
 
 const MIN_DEPOSIT = BigInt("100000000000000000"); // 0.1 ETH
 
+// Add NonceTracker address constant
+const NONCE_TRACKER_ADDRESS = "0x1e3C75E11F8c31ffe8BA28A648B1D58566df6d72" as const;
+// Add ERC1967 implementation slot constant
+const ERC1967_IMPLEMENTATION_SLOT = "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc" as const;
+
 export function PasskeyVerification({
   smartWalletAddress,
   passkey,
   useAnvil = false,
+  isDelegateDisrupted,
+  isImplementationDisrupted,
+  onRecoveryComplete,
 }: Props) {
   const [verifying, setVerifying] = useState(false);
   const [steps, setSteps] = useState<VerificationStep[]>([]);
   const [isVerified, setIsVerified] = useState(false);
+  const [showRecoveryModal, setShowRecoveryModal] = useState(false);
   const chain = useAnvil ? localAnvil : odysseyTestnet;
 
   const updateStep = (index: number, updates: Partial<VerificationStep>) => {
@@ -125,6 +140,12 @@ export function PasskeyVerification({
   };
 
   const handleVerify = useCallback(async () => {
+    // If account is disrupted, show recovery modal instead of proceeding
+    if (isDelegateDisrupted || isImplementationDisrupted) {
+      setShowRecoveryModal(true);
+      return;
+    }
+
     try {
       // Reset states for new transaction
       setVerifying(true);
@@ -403,7 +424,191 @@ export function PasskeyVerification({
     } finally {
       setVerifying(false);
     }
-  }, [smartWalletAddress, passkey, useAnvil, chain]);
+  }, [smartWalletAddress, passkey, useAnvil, chain, isDelegateDisrupted, isImplementationDisrupted]);
+
+  const handleRecover = async () => {
+    try {
+      setVerifying(true);
+      setSteps([]);
+      addStep({
+        status: "Starting account recovery...",
+        isComplete: false,
+      });
+
+      // Create WebAuthn account for signing
+      console.log("Creating WebAuthn account from passkey...");
+      const webAuthnAccount = toWebAuthnAccount({ credential: passkey });
+
+      const publicClient = createPublicClient({
+        chain,
+        transport: http(),
+      });
+
+      if (isDelegateDisrupted) {
+        addStep({
+          status: "Resetting delegate to relayer...",
+          isComplete: false,
+        });
+
+        // Submit the reset delegate transaction
+        const delegateResponse = await fetch("/api/relay", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            operation: "resetDelegate",
+            targetAddress: smartWalletAddress,
+          }),
+        });
+
+        if (!delegateResponse.ok) {
+          throw new Error("Failed to reset delegate");
+        }
+
+        const { hash: delegateHash } = await delegateResponse.json();
+        updateStep(1, {
+          status: "Waiting for delegate reset transaction...",
+          isComplete: false,
+          txHash: delegateHash,
+        });
+
+        await waitForTransaction(delegateHash, chain);
+        updateStep(1, {
+          status: "Successfully reset delegate",
+          isComplete: true,
+          txHash: delegateHash,
+        });
+      }
+
+      if (isImplementationDisrupted) {
+        addStep({
+          status: "Resetting implementation to correct version...",
+          isComplete: false,
+        });
+
+        // Get current implementation from storage
+        const implementationSlotData = await publicClient.getStorageAt({
+          address: smartWalletAddress,
+          slot: ERC1967_IMPLEMENTATION_SLOT,
+        });
+        
+        if (!implementationSlotData) {
+          throw new Error("Failed to read implementation slot");
+        }
+        
+        // Convert the storage data to an address (take last 20 bytes)
+        const currentImplementation = `0x${implementationSlotData.slice(-40)}` as Address;
+        console.log("Current implementation:", currentImplementation);
+
+        // Get the current nonce from NonceTracker
+        const nonce = await publicClient.readContract({
+          address: NONCE_TRACKER_ADDRESS,
+          abi: [{
+            type: "function",
+            name: "nonces",
+            inputs: [{ name: "account", type: "address" }],
+            outputs: [{ type: "uint256" }],
+            stateMutability: "view"
+          }],
+          functionName: "nonces",
+          args: [smartWalletAddress],
+        });
+        console.log("Current nonce from NonceTracker:", nonce.toString());
+
+        // Get owner index for smart account
+        console.log("Getting owner index...");
+        const nextOwnerIndex = await publicClient.readContract({
+          address: smartWalletAddress,
+          abi: [
+            {
+              type: "function",
+              name: "nextOwnerIndex",
+              inputs: [],
+              outputs: [{ type: "uint256", name: "" }],
+              stateMutability: "view",
+            },
+          ],
+          functionName: "nextOwnerIndex",
+        });
+
+        const ourOwnerIndex = Number(nextOwnerIndex - BigInt(1));
+        console.log("Using owner index:", ourOwnerIndex);
+
+        // Create smart account for signing
+        console.log("Creating smart account client...");
+        const smartAccount = await toCoinbaseSmartAccount({
+          client: publicClient,
+          owners: [webAuthnAccount],
+          address: smartWalletAddress,
+          ownerIndex: ourOwnerIndex,
+        });
+
+        // Create the setImplementation hash
+        const chainId = useAnvil ? localAnvil.id : odysseyTestnet.id;
+        const setImplementationHash = createSetImplementationHash(
+          smartWalletAddress,
+          NEW_IMPLEMENTATION_ADDRESS,
+          "0x", // No initialization needed for reset
+          nonce,
+          currentImplementation,
+          false, // allowCrossChainReplay
+          BigInt(chainId)
+        );
+
+        // Sign the hash using the smart account
+        const signature = await smartAccount.signMessage({
+          message: { raw: setImplementationHash },
+        });
+
+        // Submit the reset implementation transaction
+        const implementationResponse = await fetch("/api/relay", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            operation: "resetImplementation",
+            targetAddress: smartWalletAddress,
+            signature,
+          }),
+        });
+
+        if (!implementationResponse.ok) {
+          throw new Error("Failed to reset implementation");
+        }
+
+        const { hash: implementationHash } = await implementationResponse.json();
+        const stepIndex = isDelegateDisrupted ? 2 : 1;
+        updateStep(stepIndex, {
+          status: "Waiting for implementation reset transaction...",
+          isComplete: false,
+          txHash: implementationHash,
+        });
+
+        await waitForTransaction(implementationHash, chain);
+        updateStep(stepIndex, {
+          status: "Successfully reset implementation",
+          isComplete: true,
+          txHash: implementationHash,
+        });
+      }
+
+      onRecoveryComplete();
+      setShowRecoveryModal(false);
+      
+      addStep({
+        status: "✓ Account recovered successfully",
+        isComplete: true,
+      });
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      addStep({
+        status: "Recovery failed",
+        isComplete: true,
+        error: errorMessage,
+      });
+    } finally {
+      setVerifying(false);
+    }
+  };
 
   return (
     <div className="flex flex-col items-center w-full max-w-5xl mx-auto mt-8">
@@ -429,6 +634,14 @@ export function PasskeyVerification({
           </div>
         </div>
       )}
+
+      <RecoveryModal
+        isOpen={showRecoveryModal}
+        onClose={() => setShowRecoveryModal(false)}
+        onRecover={handleRecover}
+        delegateIssue={isDelegateDisrupted}
+        implementationIssue={isImplementationDisrupted}
+      />
     </div>
   );
 }

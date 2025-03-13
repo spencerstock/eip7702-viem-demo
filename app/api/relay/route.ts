@@ -54,6 +54,15 @@ export async function POST(request: Request) {
       case "upgradeEOA": {
         const { initArgs, signature, authorizationList } = body;
         
+        console.log("Received upgradeEOA request:", {
+          targetAddress,
+          hasAuthList: !!authorizationList,
+          authListLength: authorizationList?.length,
+          authDetails: authorizationList?.[0],
+          hasInitArgs: !!initArgs,
+          hasSignature: !!signature,
+        });
+        
         // Combined transaction that includes both the 7702 authorization and setImplementation call
         const hash = await relayerWallet.sendTransaction({
           to: targetAddress,
@@ -83,6 +92,13 @@ export async function POST(request: Request) {
           authorizationList,
         });
         
+        console.log("Submitted upgradeEOA transaction:", {
+          hash,
+          targetAddress,
+          implementation: NEW_IMPLEMENTATION_ADDRESS,
+          validator: VALIDATOR_ADDRESS,
+        });
+        
         return Response.json({ hash });
       }
 
@@ -109,6 +125,100 @@ export async function POST(request: Request) {
         return Response.json({ hash });
       }
 
+      case "delegate": {
+        const { authorizationList } = body;
+        console.log("Received delegate request:", {
+          targetAddress,
+          hasAuthList: !!authorizationList,
+          authListLength: authorizationList?.length,
+          authDetails: authorizationList?.[0],
+        });
+
+        // Submit the authorization to delegate to a foreign address
+        const hash = await relayerWallet.sendTransaction({
+          to: targetAddress,
+          value: BigInt(0),
+          authorizationList,
+        });
+        
+        return Response.json({ hash });
+      }
+
+      case "setForeignImplementation": {
+        const { implementation } = body;
+        
+        // Call upgradeToAndCall directly on the EOA
+        const hash = await relayerWallet.sendTransaction({
+          to: targetAddress,
+          value: BigInt(0),
+          data: encodeFunctionData({
+            abi: [{
+              type: "function",
+              name: "upgradeToAndCall",
+              inputs: [
+                { name: "newImplementation", type: "address" },
+                { name: "data", type: "bytes" }
+              ],
+              outputs: [],
+              stateMutability: "nonpayable"
+            }],
+            functionName: "upgradeToAndCall",
+            args: [implementation, "0x"]
+          })
+        });
+        
+        return Response.json({ hash });
+      }
+
+      case "resetDelegate": {
+        const { authorizationList } = body;
+        
+        // Submit the authorization to reset delegate back to relayer
+        const hash = await relayerWallet.sendTransaction({
+          to: targetAddress,
+          value: BigInt(0),
+          authorizationList,
+        });
+        
+        return Response.json({ hash });
+      }
+
+      case "resetImplementation": {
+        const { signature, authorizationList } = body;
+        
+        // Call setImplementation to reset to the correct implementation
+        const hash = await relayerWallet.sendTransaction({
+          to: targetAddress,
+          value: BigInt(0),
+          data: encodeFunctionData({
+            abi: [{
+              type: "function",
+              name: "setImplementation",
+              inputs: [
+                { name: "newImplementation", type: "address" },
+                { name: "callData", type: "bytes" },
+                { name: "validator", type: "address" },
+                { name: "signature", type: "bytes" },
+                { name: "allowCrossChainReplay", type: "bool" }
+              ],
+              outputs: [],
+              stateMutability: "payable"
+            }],
+            functionName: "setImplementation",
+            args: [
+              NEW_IMPLEMENTATION_ADDRESS,
+              "0x", // No initialization needed for reset
+              VALIDATOR_ADDRESS,
+              signature,
+              false
+            ]
+          }),
+          authorizationList,
+        });
+        
+        return Response.json({ hash });
+      }
+
       default:
         return new Response(
           JSON.stringify({ error: `Unknown operation: ${operation}` }),
@@ -118,7 +228,10 @@ export async function POST(request: Request) {
   } catch (error: any) {
     console.error("Relay error:", error);
     return new Response(
-      JSON.stringify({ error: error.message || "Internal server error" }),
+      JSON.stringify({ 
+        error: error.message || "Internal server error",
+        details: error.shortMessage || error.details || undefined
+      }),
       { status: 500 }
     );
   }

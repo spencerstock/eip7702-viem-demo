@@ -157,6 +157,12 @@ export function WalletManager({
 
       // Create the authorization signature for EIP-7702
       setStatus("Creating authorization signature...");
+      console.log("\n=== Creating initial upgrade authorization ===");
+      console.log("EOA address:", account.address);
+      console.log("Target contract:", proxyAddress);
+      console.log("Sponsor:", useAnvil
+        ? (await getRelayerWalletClient(true)).account.address
+        : process.env.NEXT_PUBLIC_RELAYER_ADDRESS);
       const authorization = await userWallet.signAuthorization({
         contractAddress: proxyAddress,
         sponsor: useAnvil
@@ -164,6 +170,10 @@ export function WalletManager({
               await getRelayerWalletClient(true)
             ).account.address
           : (process.env.NEXT_PUBLIC_RELAYER_ADDRESS as `0x${string}`),
+      });
+      console.log("Created authorization:", {
+        hasSignature: !!authorization,
+        authorizationDetails: authorization,
       });
 
       // Submit the combined upgrade transaction
