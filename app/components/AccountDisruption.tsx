@@ -51,26 +51,39 @@ export function AccountDisruption({
         transport: http(),
       });
 
-    //   // Get the current nonce directly from storage
-    //   const nonceData = await publicClient.getStorageAt({
-    //     address: account.address,
-    //     slot: "0x0000000000000000000000000000000000000000000000000000000000000000"
-    //   });
+      // Check EOA balance and fund if needed
+      const balance = await publicClient.getBalance({ address: account.address });
+      console.log("Current EOA balance:", balance.toString(), "wei");
       
-    //   if (!nonceData) {
-    //     throw new Error("Failed to read nonce from storage");
-    //   }
-
-    //   // Convert the hex storage value to a number
-    //   const nonce = parseInt(nonceData.slice(2), 16);
-    //   console.log("Current EOA nonce from storage:", nonce);
+      if (balance < BigInt(300000000000000)) { // 0.00012 ETH in wei
+        console.log("Funding EOA with gas money...");
+        const fundResponse = await fetch("/api/relay", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            operation: "fund",
+            targetAddress: account.address,
+            value: "300000000000000",
+          }),
+        });
+        
+        if (!fundResponse.ok) {
+          throw new Error("Failed to fund EOA wallet");
+        }
+        
+        const { hash } = await fundResponse.json();
+        console.log("Funding transaction submitted:", hash);
+        await publicClient.waitForTransactionReceipt({ hash });
+        
+        const newBalance = await publicClient.getBalance({ address: account.address });
+        console.log("New EOA balance:", newBalance.toString(), "wei");
+      }
 
       // Create authorization signature for the smart wallet to change its delegate
       console.log("\n=== Creating re-delegation authorization ===");
       console.log("EOA address:", account.address);
       console.log("Target address:", FOREIGN_DELEGATE);
       console.log("Sponsor:", relayerAddress);
-    //   console.log("Using nonce:", nonce);
       const authorization = await userWallet.signAuthorization({
         contractAddress: FOREIGN_DELEGATE,
         sponsor: relayerAddress,
@@ -83,20 +96,18 @@ export function AccountDisruption({
         targetAddress: smartWalletAddress,
       });
 
-      // Submit the authorization
-      const response = await fetch("/api/relay", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          operation: "delegate",
-          targetAddress: account.address,
-          authorizationList: [authorization],
-        }, (_, value) => typeof value === "bigint" ? value.toString() : value),
+      // Submit the transaction directly from the EOA wallet
+      console.log("Submitting transaction directly from EOA wallet...");
+      const hash = await userWallet.sendTransaction({
+        to: account.address,
+        value: BigInt(0),
+        authorizationList: [authorization],
       });
+      console.log("Transaction submitted:", hash);
 
-      if (!response.ok) {
-        throw new Error("Failed to delegate to foreign address");
-      }
+      // Wait for transaction confirmation
+      const receipt = await publicClient.waitForTransactionReceipt({ hash });
+      console.log("Transaction receipt:", receipt);
 
       // Check the current bytecode after delegation
       const code = await publicClient.getCode({ address: smartWalletAddress });
