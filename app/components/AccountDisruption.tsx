@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { type Address, createPublicClient, http, type Hex, encodeFunctionData } from "viem";
 import { odysseyTestnet } from "../lib/chains";
 import { localAnvil, createEOAClient, type ExtendedAccount, getRelayerWalletClient } from "../lib/wallet-utils";
-import { NEW_IMPLEMENTATION_ADDRESS } from "../lib/contracts";
+import { NEW_IMPLEMENTATION_ADDRESS, PROXY_TEMPLATE_ADDRESSES } from "../lib/contracts";
 
 const FOREIGN_DELEGATE = "0x5ee57314eFc8D76B9084BC6759A2152084392e18" as const; // old EIP7702Proxy version
 // const FOREIGN_DELEGATE = "0x88da98F3fd0525FFB85D03D29A21E49f5d48491f" as const;
@@ -299,7 +299,7 @@ export function AccountDisruption({
         <div className="flex gap-4">
           <button
             onClick={handleDelegateForeign}
-            disabled={delegateLoading}
+            disabled={delegateLoading || (!!currentBytecode && (currentBytecode === "0x" || currentBytecode !== PROXY_TEMPLATE_ADDRESSES.odyssey))}
             className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 disabled:opacity-50"
           >
             {delegateLoading ? "Delegating..." : "7702-Delegate to Foreign Delegate"}
@@ -307,7 +307,7 @@ export function AccountDisruption({
 
           <button
             onClick={handleSetForeignImplementation}
-            disabled={implementationLoading}
+            disabled={implementationLoading || (!!currentSlotValue && currentSlotValue.toLowerCase() !== NEW_IMPLEMENTATION_ADDRESS.toLowerCase())}
             className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 disabled:opacity-50"
           >
             {implementationLoading ? "Setting..." : "Set Foreign ERC-1967 Implementation"}
@@ -317,16 +317,24 @@ export function AccountDisruption({
         <div className="mt-4 p-4 bg-gray-900/30 rounded-lg w-full">
           <h4 className="text-lg font-semibold text-blue-400 mb-2">Current EOA State:</h4>
           <div className="font-mono text-sm break-all">
-            <p className="text-gray-400 mb-2">Bytecode: {
-              currentBytecode 
-                ? <span className="text-green-400">{currentBytecode}</span>
-                : <span className="text-yellow-400">Not checked yet</span>
-            }</p>
-            <p className="text-gray-400">Implementation Address: {
-              currentSlotValue 
-                ? <span className="text-green-400">{currentSlotValue}</span>
-                : <span className="text-yellow-400">Not checked yet</span>
-            }</p>
+            <p className="text-gray-400 mb-2">
+              Bytecode: {
+                currentBytecode 
+                  ? <span className={currentBytecode === "0x" || currentBytecode !== PROXY_TEMPLATE_ADDRESSES.odyssey ? "text-red-400" : "text-green-400"}>
+                      {currentBytecode}
+                    </span>
+                  : <span className="text-yellow-400">Not checked yet</span>
+              }
+            </p>
+            <p className="text-gray-400">
+              Implementation Address: {
+                currentSlotValue 
+                  ? <span className={currentSlotValue.toLowerCase() !== NEW_IMPLEMENTATION_ADDRESS.toLowerCase() ? "text-red-400" : "text-green-400"}>
+                      {currentSlotValue}
+                    </span>
+                  : <span className="text-yellow-400">Not checked yet</span>
+              }
+            </p>
           </div>
         </div>
 
