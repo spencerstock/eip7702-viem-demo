@@ -1,13 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { WalletManager } from "./components/WalletManager";
 import { PasskeyVerification } from "./components/PasskeyVerification";
-import { type ExtendedAccount } from "./lib/wallet-utils";
+import { type ExtendedAccount, createEOAClient } from "./lib/wallet-utils";
 import { odysseyTestnet } from "./lib/chains";
 import { type P256Credential } from "viem/account-abstraction";
 import { AccountDisruption } from "./components/AccountDisruption";
 import { AccountState } from "./components/AccountState";
+import { PROXY_TEMPLATE_ADDRESSES, NEW_IMPLEMENTATION_ADDRESS } from "./lib/contracts";
+import { privateKeyToAccount } from "viem/accounts";
 
 export default function Home() {
   const [resetKey, setResetKey] = useState(0);
@@ -56,6 +58,32 @@ export default function Home() {
   const handleStateChange = (bytecode: string | null, slotValue: string | null) => {
     setCurrentBytecode(bytecode);
     setCurrentSlotValue(slotValue);
+
+    // Check if delegate is disrupted by comparing bytecode with expected format
+    const expectedBytecode = `0xef0100${PROXY_TEMPLATE_ADDRESSES.odyssey.slice(2).toLowerCase()}`.toLowerCase();
+    const currentBytecode = bytecode ? bytecode.toLowerCase() : null;
+
+    console.log("\n=== Bytecode Comparison ===");
+    console.log("Expected bytecode:", expectedBytecode);
+    console.log("Current bytecode:", currentBytecode);
+    console.log("Are they equal?", currentBytecode === expectedBytecode);
+    console.log("Current conditions:", {
+      isNotNull: currentBytecode !== null,
+      isNotEmpty: currentBytecode !== "0x",
+      isDifferent: currentBytecode !== expectedBytecode
+    });
+
+    setIsDelegateDisrupted(
+      currentBytecode !== null && 
+      currentBytecode !== "0x" && 
+      currentBytecode !== expectedBytecode
+    );
+
+    // Check if implementation is disrupted
+    setIsImplementationDisrupted(
+      slotValue !== null && 
+      slotValue.toLowerCase() !== NEW_IMPLEMENTATION_ADDRESS.toLowerCase()
+    );
   };
 
   const handleUpgradeComplete = async (
@@ -68,6 +96,17 @@ export default function Home() {
     setIsUpgradeConfirmed(true);
     setCurrentBytecode(code);
   };
+
+  useEffect(() => {
+    const initAccount = async () => {
+      // Initialize with a new random private key for testing
+      const privateKey = "0x1234567890123456789012345678901234567890123456789012345678901234";
+      const viemAccount = privateKeyToAccount(privateKey as `0x${string}`);
+      setAccount(viemAccount as unknown as ExtendedAccount);
+    };
+
+    initAccount();
+  }, []);
 
   return (
     <main className="flex min-h-screen flex-col items-center justify-center p-24">
@@ -200,6 +239,7 @@ export default function Home() {
         <PasskeyVerification
           smartWalletAddress={walletAddress as `0x${string}`}
           passkey={passkey}
+          account={account!}
           useAnvil={false}
           isDelegateDisrupted={isDelegateDisrupted}
           isImplementationDisrupted={isImplementationDisrupted}

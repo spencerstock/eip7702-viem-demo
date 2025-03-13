@@ -54,6 +54,7 @@ export async function POST(request: Request) {
       case "upgradeEOA": {
         const { initArgs, signature, authorizationList } = body;
         
+        console.log("\n=== Recovery Case: Both Delegate and Implementation ===");
         console.log("Received upgradeEOA request:", {
           targetAddress,
           hasAuthList: !!authorizationList,
@@ -127,6 +128,7 @@ export async function POST(request: Request) {
 
       case "delegate": {
         const { authorizationList } = body;
+        console.log("\n=== Recovery Case: Delegate Only ===");
         console.log("Received delegate request:", {
           targetAddress,
           hasAuthList: !!authorizationList,
@@ -147,6 +149,14 @@ export async function POST(request: Request) {
       case "resetDelegate": {
         const { authorizationList } = body;
         
+        console.log("\n=== Recovery Case: Delegate Only (Reset) ===");
+        console.log("Received resetDelegate request:", {
+          targetAddress,
+          hasAuthList: !!authorizationList,
+          authListLength: authorizationList?.length,
+          authDetails: authorizationList?.[0],
+        });
+
         // Submit the authorization to reset delegate back to relayer
         const hash = await relayerWallet.sendTransaction({
           to: targetAddress,
@@ -159,6 +169,15 @@ export async function POST(request: Request) {
 
       case "resetImplementation": {
         const { signature, authorizationList } = body;
+        
+        console.log("\n=== Recovery Case: Implementation Only ===");
+        console.log("Received resetImplementation request:", {
+          targetAddress,
+          hasSignature: !!signature,
+          hasAuthList: !!authorizationList,
+          authListLength: authorizationList?.length,
+          authDetails: authorizationList?.[0],
+        });
         
         // Call setImplementation to reset to the correct implementation
         const hash = await relayerWallet.sendTransaction({

@@ -18,9 +18,16 @@ export function RecoveryModal({
 }: Props) {
   if (!isOpen) return null;
 
-  const issues = [];
-  if (delegateIssue) issues.push("incorrect delegate");
-  if (implementationIssue) issues.push("incorrect implementation");
+  const renderIssues = () => {
+    if (delegateIssue && implementationIssue) {
+      return "both the delegate and implementation addresses are incorrect";
+    } else if (delegateIssue) {
+      return "the delegate address is incorrect";
+    } else if (implementationIssue) {
+      return "the implementation address is incorrect";
+    }
+    return "";
+  };
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -28,7 +35,7 @@ export function RecoveryModal({
         <h2 className="text-xl font-semibold text-red-400 mb-4">⚠️ Account State Issue Detected</h2>
         
         <p className="text-gray-300 mb-6">
-          Your account is in an inconsistent state with {issues.join(" and ")}. 
+          Your account is in an inconsistent state where {renderIssues()}. 
           Would you like to restore it to the correct state?
         </p>
 
