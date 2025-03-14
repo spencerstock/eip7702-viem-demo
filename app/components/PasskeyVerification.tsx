@@ -736,7 +736,7 @@ export function PasskeyVerification({
         disabled={verifying}
         className="px-6 py-3 text-lg font-semibold text-white bg-blue-500 rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed mb-8 w-64"
       >
-        {verifying ? "Working on userOp..." : "Transact using passkey"}
+        {verifying ? "..." : "Transact using passkey"}
       </button>
 
       <div className="w-full space-y-4">
