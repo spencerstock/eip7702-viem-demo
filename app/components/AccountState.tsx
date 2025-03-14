@@ -1,12 +1,10 @@
 import { PROXY_TEMPLATE_ADDRESSES, NEW_IMPLEMENTATION_ADDRESS } from "../lib/contracts";
+import { MAGIC_PREFIX } from "../lib/contracts";
 
 interface Props {
   currentBytecode: string | null;
   currentSlotValue: string | null;
 }
-
-// EIP-7702 magic prefix
-const MAGIC_PREFIX = "0xef0100" as const;
 
 // Helper to check if bytecode is correct (includes magic prefix)
 const isCorrectBytecode = (bytecode: string) => {

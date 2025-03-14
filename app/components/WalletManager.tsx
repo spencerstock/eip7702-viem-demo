@@ -20,7 +20,7 @@ import {
   NEW_IMPLEMENTATION_ADDRESS,
   ZERO_ADDRESS,
 } from "../lib/contracts";
-import { getNonceFromTracker } from "../lib/contract-utils";
+import { getNonceFromTracker, verifyPasskeyOwnership, checkContractState } from "../lib/contract-utils";
 
 interface WalletManagerProps {
   useAnvil: boolean;
@@ -140,18 +140,16 @@ export function WalletManager({
           : (process.env.NEXT_PUBLIC_RELAYER_ADDRESS as Hex),
         passkey,
       ]);
-
       const nonce = await getNonceFromTracker(publicClient, account.address);
-
-      // Create the setImplementation hash
       const chainId = useAnvil ? localAnvil.id : odysseyTestnet.id;
+
       const setImplementationHash = createSetImplementationHash(
         proxyAddress,
         NEW_IMPLEMENTATION_ADDRESS,
         initArgs,
         nonce,
-        ZERO_ADDRESS, // currentImplementation
-        false, // allowCrossChainReplay
+        ZERO_ADDRESS,
+        false,
         BigInt(chainId)
       );
 
@@ -160,12 +158,6 @@ export function WalletManager({
 
       // Create the authorization signature for EIP-7702
       setStatus("Creating authorization signature...");
-      console.log("\n=== Creating initial upgrade authorization ===");
-      console.log("EOA address:", account.address);
-      console.log("Target contract:", proxyAddress);
-      console.log("Sponsor:", useAnvil
-        ? (await getRelayerWalletClient(true)).account.address
-        : process.env.NEXT_PUBLIC_RELAYER_ADDRESS);
       const authorization = await userWallet.signAuthorization({
         contractAddress: proxyAddress,
         sponsor: useAnvil
@@ -173,10 +165,6 @@ export function WalletManager({
               await getRelayerWalletClient(true)
             ).account.address
           : (process.env.NEXT_PUBLIC_RELAYER_ADDRESS as `0x${string}`),
-      });
-      console.log("Created authorization:", {
-        hasSignature: !!authorization,
-        authorizationDetails: authorization,
       });
 
       // Submit the combined upgrade transaction
@@ -201,59 +189,40 @@ export function WalletManager({
         throw new Error(error.error || "Failed to relay upgrade transaction");
       }
       const upgradeHash = (await upgradeResponse.json()).hash;
-      console.log("✓ Upgrade transaction submitted:", upgradeHash);
+      console.log("Upgrade transaction submitted:", upgradeHash);
 
       // Wait for the upgrade transaction to be mined
-      setStatus("✓ Waiting for upgrade transaction confirmation...");
+      setStatus("Waiting for upgrade transaction confirmation...");
       const upgradeReceipt = await publicClient.waitForTransactionReceipt({
         hash: upgradeHash,
       });
       if (upgradeReceipt.status !== "success") {
         throw new Error("Upgrade transaction failed");
       }
-      console.log("✓ Upgrade transaction confirmed");
+      console.log("Upgrade transaction confirmed");
 
       // Check if the code was deployed
-      setStatus("✓ Verifying deployment...");
-      const code = await publicClient.getCode({ address: account.address });
+      setStatus("Verifying deployment...");
+      const state = await checkContractState(publicClient, account.address, useAnvil);
 
-      if (code && code !== "0x") {
+      // TODO: establish constant expected bytecode in the contracts.ts file and use here and elsewhere
+      if (state.bytecode !== "0x") {
         console.log("✓ Code deployed successfully");
         
         // Verify passkey ownership
         setStatus("✓ Verifying passkey ownership...");
-        const isOwner = await publicClient.readContract({
-          address: account.address,
-          abi: [
-            {
-              type: "function",
-              name: "isOwnerPublicKey",
-              inputs: [
-                { name: "x", type: "bytes32" },
-                { name: "y", type: "bytes32" },
-              ],
-              outputs: [{ type: "bool" }],
-              stateMutability: "view",
-            },
-          ],
-          functionName: "isOwnerPublicKey",
-          args: [
-            `0x${passkey.publicKey.slice(2, 66)}` as `0x${string}`,
-            `0x${passkey.publicKey.slice(66)}` as `0x${string}`,
-          ],
-        });
+        const isOwner = await verifyPasskeyOwnership(publicClient, account.address, passkey);
 
         if (!isOwner) {
           throw new Error("Passkey verification failed: not registered as an owner");
         }
 
         console.log("\n=== Wallet upgrade complete ===");
-        console.log("Smart wallet address:", account.address);
         setStatus("✓ EOA has been upgraded to a Coinbase Smart Wallet with verified passkey!");
         onUpgradeComplete(
           account.address as `0x${string}`,
           upgradeHash,
-          code
+          state.bytecode
         );
         setIsUpgraded(true);
       } else {
