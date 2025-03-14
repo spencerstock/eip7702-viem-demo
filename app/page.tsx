@@ -1,11 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { WalletManager } from "./components/WalletManager";
 import { PasskeyVerification } from "./components/PasskeyVerification";
 import { type ExtendedAccount } from "./lib/wallet-utils";
 import { odysseyTestnet } from "./lib/chains";
 import { type P256Credential } from "viem/account-abstraction";
+import { AccountDisruption } from "./components/AccountDisruption";
+import { PROXY_TEMPLATE_ADDRESSES, NEW_IMPLEMENTATION_ADDRESS } from "./lib/contracts";
+import { privateKeyToAccount } from "viem/accounts";
 
 export default function Home() {
   const [resetKey, setResetKey] = useState(0);
@@ -16,6 +19,10 @@ export default function Home() {
   const [isUpgradeConfirmed, setIsUpgradeConfirmed] = useState(false);
   const [account, setAccount] = useState<ExtendedAccount | null>(null);
   const [passkey, setPasskey] = useState<P256Credential | null>(null);
+  const [isDelegateDisrupted, setIsDelegateDisrupted] = useState(false);
+  const [isImplementationDisrupted, setIsImplementationDisrupted] = useState(false);
+  const [currentBytecode, setCurrentBytecode] = useState<string | null>(null);
+  const [currentSlotValue, setCurrentSlotValue] = useState<string | null>(null);
 
   const handleReset = () => {
     setWalletAddress(null);
@@ -25,7 +32,57 @@ export default function Home() {
     setIsUpgradeConfirmed(false);
     setAccount(null);
     setPasskey(null);
+    setIsDelegateDisrupted(false);
+    setIsImplementationDisrupted(false);
+    setCurrentBytecode(null);
+    setCurrentSlotValue(null);
     setResetKey((prev) => prev + 1);
+  };
+
+  const handleDisruptionComplete = (type: 'delegate' | 'implementation') => {
+    if (type === 'delegate') {
+      setIsDelegateDisrupted(true);
+    } else {
+      setIsImplementationDisrupted(true);
+    }
+  };
+
+  const handleRecoveryComplete = () => {
+    setIsDelegateDisrupted(false);
+    setIsImplementationDisrupted(false);
+  };
+
+  const handleStateChange = (bytecode: string | null, slotValue: string | null) => {
+    // Update current values if they're provided
+    if (bytecode !== null) {
+      setCurrentBytecode(bytecode);
+      
+      // Check if delegate is disrupted by comparing bytecode with expected format
+      const expectedBytecode = `0xef0100${PROXY_TEMPLATE_ADDRESSES.odyssey.slice(2).toLowerCase()}`.toLowerCase();
+      const currentBytecode = bytecode.toLowerCase();
+
+      console.log("\n=== Delegate State Change ===");
+      console.log("Expected bytecode:", expectedBytecode);
+      console.log("Current bytecode:", currentBytecode);
+      console.log("Previous delegate state:", isDelegateDisrupted);
+
+      const newDelegateDisrupted = currentBytecode !== "0x" && currentBytecode !== expectedBytecode;
+      console.log("Setting delegate disrupted to:", newDelegateDisrupted);
+      setIsDelegateDisrupted(newDelegateDisrupted);
+    }
+
+    if (slotValue !== null) {
+      setCurrentSlotValue(slotValue);
+
+      console.log("\n=== Implementation State Change ===");
+      console.log("Expected implementation:", NEW_IMPLEMENTATION_ADDRESS.toLowerCase());
+      console.log("Current implementation:", slotValue.toLowerCase());
+      console.log("Previous implementation state:", isImplementationDisrupted);
+
+      const newImplementationDisrupted = slotValue.toLowerCase() !== NEW_IMPLEMENTATION_ADDRESS.toLowerCase();
+      console.log("Setting implementation disrupted to:", newImplementationDisrupted);
+      setIsImplementationDisrupted(newImplementationDisrupted);
+    }
   };
 
   const handleUpgradeComplete = async (
@@ -36,7 +93,19 @@ export default function Home() {
     setUpgradeTxHash(upgradeHash);
     setBytecode(code);
     setIsUpgradeConfirmed(true);
+    setCurrentBytecode(code);
   };
+
+  useEffect(() => {
+    const initAccount = async () => {
+      // Initialize with a new random private key for testing
+      const privateKey = "0x1234567890123456789012345678901234567890123456789012345678901234";
+      const viemAccount = privateKeyToAccount(privateKey as `0x${string}`);
+      setAccount(viemAccount as unknown as ExtendedAccount);
+    };
+
+    initAccount();
+  }, []);
 
   return (
     <main className="flex min-h-screen flex-col items-center justify-center p-24">
@@ -151,11 +220,28 @@ export default function Home() {
         </div>
       )}
 
+      {isUpgradeConfirmed && account && walletAddress && (
+        <AccountDisruption
+          account={account}
+          smartWalletAddress={walletAddress as `0x${string}`}
+          useAnvil={false}
+          onDisruptionComplete={handleDisruptionComplete}
+          currentBytecode={currentBytecode}
+          currentSlotValue={currentSlotValue}
+          onStateChange={handleStateChange}
+        />
+      )}
+
       {isUpgradeConfirmed && walletAddress && passkey && (
         <PasskeyVerification
           smartWalletAddress={walletAddress as `0x${string}`}
           passkey={passkey}
+          account={account!}
           useAnvil={false}
+          isDelegateDisrupted={isDelegateDisrupted}
+          isImplementationDisrupted={isImplementationDisrupted}
+          onRecoveryComplete={handleRecoveryComplete}
+          onStateChange={handleStateChange}
         />
       )}
 
