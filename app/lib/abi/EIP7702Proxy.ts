@@ -108,10 +108,3 @@ export const EIP7702ProxyAbi = [
   { "type": "error", "name": "InvalidValidation", "inputs": [] },
   { "type": "error", "name": "ZeroAddress", "inputs": [] }
 ] as const satisfies Abi;
-
-// Contract addresses for different networks
-export const EIP7702ProxyAddresses = {
-  baseSepolia: "0x7224D0bBdDFB845195FD480C8c09e440cfa1850F",
-  anvil: "0x0000000000000000000000000000000000000000",
-  odyssey: "0xcA271A94dd66982180960B579de6B3213084D67A", // only live net with 7702 enabled
-} as const;

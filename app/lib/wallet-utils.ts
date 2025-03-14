@@ -8,7 +8,6 @@ import {
   type Hex,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { anvil } from "viem/chains";
 import { eip7702Actions } from "viem/experimental";
 import { secp256k1 } from "@noble/curves/secp256k1";
 import { hexToBytes } from "@noble/curves/abstract/utils";
@@ -16,89 +15,24 @@ import { odysseyTestnet } from "./chains";
 import { 
   IMPLEMENTATION_SET_TYPEHASH, 
   VALIDATOR_ADDRESS,
-} from "./contracts";
-
-// Configure anvil chain with the correct URL
-export const localAnvil = {
-  ...anvil,
-  rpcUrls: {
-    default: {
-      http: ["http://127.0.0.1:8545"],
-    },
-    public: {
-      http: ["http://127.0.0.1:8545"],
-    },
-  },
-} as const;
-
-// Anvil's first pre-funded account
-export const ANVIL_RELAYER_PRIVATE_KEY =
-  "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
+} from "./constants";
 
 // Add a type for our extended account that includes the private key
 export type ExtendedAccount = ReturnType<typeof privateKeyToAccount> & {
   _privateKey: Hex;
 };
 
-export async function getRelayerWalletClient(useAnvil = true) {
-  if (useAnvil) {
-    // For Anvil, we can still use the local account
-    const privateKey = ANVIL_RELAYER_PRIVATE_KEY as Hex;
-    const relayerAccount = privateKeyToAccount(privateKey);
-    return createWalletClient({
-      account: relayerAccount,
-      chain: localAnvil,
-      transport: http(),
-    }).extend(eip7702Actions());
-  }
-
-  // For non-Anvil, return a proxy that calls our API
-  return {
-    account: {
-      // Use the public relayer address
-      address: process.env.NEXT_PUBLIC_RELAYER_ADDRESS as `0x${string}`,
-    },
-    async sendTransaction({
-      to,
-      value,
-      authorizationList,
-    }: {
-      to: `0x${string}`;
-      value: bigint;
-      authorizationList: any[];
-    }) {
-      const response = await fetch("/api/relay", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          to,
-          value: value.toString(),
-          authorizationList,
-        }),
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || "Failed to relay transaction");
-      }
-
-      const { hash } = await response.json();
-      return hash as `0x${string}`;
-    },
-  };
-}
-
-export function createEOAClient(account: ExtendedAccount, useAnvil = true) {
+// Creates a new wallet client with the given account, which is extended to include the private key
+export function createEOAClient(account: ExtendedAccount) {
   // Create the wallet client with the extended account to get access to private key
   return createWalletClient({
     account,
-    chain: useAnvil ? localAnvil : odysseyTestnet,
+    chain: odysseyTestnet,
     transport: http(),
   }).extend(eip7702Actions());
 }
 
+// Creates a new extended account with a random private key
 export async function createEOAWallet(): Promise<ExtendedAccount> {
   // Generate a random private key
   const privateKey = `0x${crypto
@@ -114,6 +48,7 @@ export async function createEOAWallet(): Promise<ExtendedAccount> {
   };
 }
 
+// Encodes the calldata for `CoinbaseSmartWallet.initialize`
 export function encodeInitializeArgs(
   owners: (Hex | { publicKey: Hex })[]
 ): Hex {
@@ -148,6 +83,7 @@ export function encodeInitializeArgs(
   });
 }
 
+// Creates the hash to be signed for a call to `EIP7702Proxy.setImplementation`
 export function createSetImplementationHash(
   proxyAddr: Hex,
   newImplementation: Hex,
@@ -192,6 +128,7 @@ export function createSetImplementationHash(
   return keccak256(encodedData);
 }
 
+// Signs a hash using the private key of the given wallet client
 export async function signSetImplementation(
   walletClient: WalletClient,
   hash: Hex
@@ -215,7 +152,5 @@ export async function signSetImplementation(
   const v = signature.recovery + 27;
 
   // Pack the signature
-  const packedSignature = `0x${r}${s}${v.toString(16)}` as Hex;
-
-  return packedSignature;
+  return`0x${r}${s}${v.toString(16)}` as Hex;
 }

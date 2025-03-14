@@ -7,11 +7,11 @@ import {
   type UserOperation,
 } from "viem/account-abstraction";
 import { odysseyTestnet } from "../lib/chains";
-import { localAnvil, createSetImplementationHash, type ExtendedAccount, createEOAClient, signSetImplementation } from "../lib/wallet-utils";
-import { EntryPointAddress, EntryPointAbi } from "../lib/abi/EntryPoint";
-import { serializeBigInts } from "../lib/smart-account";
+import { createSetImplementationHash, type ExtendedAccount, createEOAClient, signSetImplementation } from "../lib/wallet-utils";
+import { serializeBigInts } from "../lib/relayer-utils";
 import { RecoveryModal } from "./RecoveryModal";
-import { PROXY_TEMPLATE_ADDRESSES, NEW_IMPLEMENTATION_ADDRESS, NONCE_TRACKER_ADDRESS, ERC1967_IMPLEMENTATION_SLOT } from "../lib/contracts";
+import { EIP7702PROXY_TEMPLATE_ADDRESS, CBSW_IMPLEMENTATION_ADDRESS } from "../lib/constants";
+import { getNonceFromTracker, checkContractState, checkAccountBalances, getCurrentImplementation } from "../lib/contract-utils";
 
 type VerificationStep = {
   status: string;
@@ -25,7 +25,6 @@ type Props = {
   smartWalletAddress: Address;
   passkey: P256Credential;
   account: ExtendedAccount;
-  useAnvil?: boolean;
   isDelegateDisrupted: boolean;
   isImplementationDisrupted: boolean;
   onRecoveryComplete: () => void;
@@ -34,7 +33,7 @@ type Props = {
 
 const waitForTransaction = async (
   hash: Hash,
-  chain: typeof odysseyTestnet | typeof localAnvil
+  chain: typeof odysseyTestnet
 ) => {
   const publicClient = createPublicClient({
     chain,
@@ -45,14 +44,9 @@ const waitForTransaction = async (
 
 function TransactionLink({
   hash,
-  useAnvil,
 }: {
   hash: Hash;
-  useAnvil: boolean;
 }) {
-  if (useAnvil) {
-    return <code className="font-mono text-green-400">{hash}</code>;
-  }
   return (
     <a
       href={`${odysseyTestnet.blockExplorers.default.url}/tx/${hash}`}
@@ -67,10 +61,8 @@ function TransactionLink({
 
 function StepDisplay({
   step,
-  useAnvil,
 }: {
   step: VerificationStep;
-  useAnvil: boolean;
 }) {
   return (
     <div className="mb-4 p-4 bg-gray-800 rounded-lg w-full max-w-5xl mx-auto">
@@ -88,7 +80,7 @@ function StepDisplay({
         <div className="mt-2 ml-6">
           <span className="text-gray-400 mr-2">Transaction:</span>
           <div className="break-all">
-            <TransactionLink hash={step.txHash} useAnvil={useAnvil} />
+            <TransactionLink hash={step.txHash} />
           </div>
         </div>
       )}
@@ -109,14 +101,10 @@ function StepDisplay({
   );
 }
 
-const MIN_DEPOSIT = BigInt("100000000000000000"); // 0.1 ETH
-
-
 export function PasskeyVerification({
   smartWalletAddress,
   passkey,
   account,
-  useAnvil = false,
   isDelegateDisrupted,
   isImplementationDisrupted,
   onRecoveryComplete,
@@ -126,328 +114,12 @@ export function PasskeyVerification({
   const [steps, setSteps] = useState<VerificationStep[]>([]);
   const [isVerified, setIsVerified] = useState(false);
   const [showRecoveryModal, setShowRecoveryModal] = useState(false);
-  const chain = useAnvil ? localAnvil : odysseyTestnet;
+  const chain = odysseyTestnet;
 
-  const updateStep = (index: number, updates: Partial<VerificationStep>) => {
-    setSteps((current) =>
-      current.map((step, i) => (i === index ? { ...step, ...updates } : step))
-    );
-  };
 
-  const addStep = (step: VerificationStep) => {
-    setSteps((current) => [...current, step]);
-  };
-
-  // Add a function to check state
-  const checkState = async () => {
-    const publicClient = createPublicClient({
-      chain: useAnvil ? localAnvil : odysseyTestnet,
-      transport: http(),
-    });
-
-    const [code, slotValue] = await Promise.all([
-      publicClient.getCode({ address: smartWalletAddress }),
-      publicClient.getStorageAt({ 
-        address: smartWalletAddress,
-        slot: ERC1967_IMPLEMENTATION_SLOT
-      })
-    ]);
-
-    // Format the slot value as an address (take last 20 bytes)
-    const implementationAddress = slotValue 
-      ? `0x${(slotValue as string).slice(-40)}` 
-      : "0x";
-
-    onStateChange(code || "0x", implementationAddress);
-  };
-
-  const handleVerify = useCallback(async () => {
-    // If account is disrupted, show recovery modal instead of proceeding
-    if (isDelegateDisrupted || isImplementationDisrupted) {
-      setShowRecoveryModal(true);
-      return;
-    }
-
-    try {
-      // Reset states for new transaction
-      setVerifying(true);
-      setSteps([]);
-      setIsVerified(false);
-
-      // Create WebAuthn account
-      console.log("Creating WebAuthn account from passkey...");
-      const webAuthnAccount = toWebAuthnAccount({ credential: passkey });
-      console.log("WebAuthn account public key:", webAuthnAccount.publicKey);
-
-      const publicClient = createPublicClient({
-        chain,
-        transport: http(),
-      });
-
-      // Check current EntryPoint deposit
-      console.log("Checking current EntryPoint deposit...");
-      const currentDeposit = (await publicClient.readContract({
-        address: EntryPointAddress,
-        abi: EntryPointAbi,
-        functionName: "balanceOf",
-        args: [smartWalletAddress],
-      })) as bigint;
-      console.log("Current deposit:", currentDeposit.toString(), "wei");
-
-      // Step 1: Check and fund smart account if needed
-      addStep({
-        status: "Checking smart account balance...",
-        isComplete: false,
-      });
-
-      // Check smart account balance
-      console.log("Checking smart account balance...");
-      const accountBalance = await publicClient.getBalance({
-        address: smartWalletAddress,
-      });
-      console.log("Smart account balance:", accountBalance.toString(), "wei");
-
-      if (accountBalance === BigInt(0)) {
-        updateStep(0, {
-          status: "Funding smart account with 1 wei...",
-          isComplete: false,
-        });
-
-        console.log("Smart account has no balance, sending 1 wei from relayer...");
-        const response = await fetch("/api/relay", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            operation: "fund",
-            targetAddress: smartWalletAddress,
-            value: "1",
-            useAnvil,
-          }),
-        });
-        if (!response.ok) {
-          throw new Error("Failed to fund smart account");
-        }
-        const { hash } = await response.json();
-        console.log("Funding transaction hash:", hash);
-        await waitForTransaction(hash as Hash, chain);
-        console.log("Smart account funded with 1 wei");
-      }
-
-      updateStep(0, {
-        status: "Smart account balance verified",
-        isComplete: true,
-      });
-
-      // Step 2: Pre-fund deposit if needed
-      if (currentDeposit < MIN_DEPOSIT) {
-        console.log("Insufficient deposit, pre-funding required...");
-        addStep({
-          status: "Pre-funding smart account gas in EntryPoint...",
-          isComplete: false,
-        });
-
-        const depositResponse = await fetch("/api/verify-passkey/deposit", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ smartWalletAddress, useAnvil }),
-        });
-
-        if (!depositResponse.ok) {
-          const error = await depositResponse.text();
-          updateStep(1, { error, isComplete: true });
-          return;
-        }
-
-        const { txHash: depositTxHash } = await depositResponse.json();
-        console.log("Deposit transaction hash:", depositTxHash);
-        updateStep(1, {
-          status: "Waiting for EntryPoint pre-funding transaction...",
-          isComplete: false,
-          txHash: depositTxHash,
-        });
-
-        await waitForTransaction(depositTxHash, chain);
-        const newDeposit = (await publicClient.readContract({
-          address: EntryPointAddress,
-          abi: EntryPointAbi,
-          functionName: "balanceOf",
-          args: [smartWalletAddress],
-        })) as bigint;
-        console.log("New deposit balance:", newDeposit.toString(), "wei");
-
-        updateStep(1, {
-          status: "EntryPoint pre-funding complete",
-          isComplete: true,
-          txHash: depositTxHash,
-        });
-      }
-
-      // Step 3: Create and sign userOp
-      addStep({
-        status: "Creating and signing userOp to transfer 1 wei to relayer...",
-        isComplete: false,
-      });
-
-      // Create and sign userOp
-      console.log("Getting owner index...");
-      const nextOwnerIndex = await publicClient.readContract({
-        address: smartWalletAddress,
-        abi: [
-          {
-            type: "function",
-            name: "nextOwnerIndex",
-            inputs: [],
-            outputs: [{ type: "uint256", name: "" }],
-            stateMutability: "view",
-          },
-        ],
-        functionName: "nextOwnerIndex",
-      });
-
-      const ourOwnerIndex = Number(nextOwnerIndex - BigInt(1));
-      console.log("Using owner index:", ourOwnerIndex);
-
-      console.log("Creating smart account client...");
-      const smartAccount = await toCoinbaseSmartAccount({
-        client: publicClient,
-        owners: [webAuthnAccount],
-        address: smartWalletAddress,
-        ownerIndex: ourOwnerIndex,
-      });
-
-      // Create and sign userOp
-      console.log("Encoding transfer call...");
-      const callData = await smartAccount.encodeCalls([
-        {
-          to: process.env.NEXT_PUBLIC_RELAYER_ADDRESS as Address,
-          value: BigInt(1),
-          data: "0x" as const,
-        },
-      ]);
-
-      console.log("Getting nonce...");
-      const nonce = await smartAccount.getNonce();
-      console.log("Current nonce:", nonce.toString());
-
-      console.log("Preparing userOperation...");
-      const unsignedUserOp = {
-        sender: smartAccount.address,
-        nonce,
-        initCode: "0x" as const,
-        callData,
-        callGasLimit: BigInt(500000),
-        verificationGasLimit: BigInt(500000),
-        preVerificationGas: BigInt(100000),
-        maxFeePerGas: BigInt(3000000000),
-        maxPriorityFeePerGas: BigInt(2000000000),
-        paymasterAndData: "0x" as const,
-        signature: "0x" as const,
-      } as const;
-
-      console.log("Signing userOperation...");
-      const signature = await smartAccount.signUserOperation(unsignedUserOp);
-      console.log("Signature length:", (signature.length - 2) / 2, "bytes");
-
-      const userOp = { ...unsignedUserOp, signature } as UserOperation;
-      console.log("UserOperation prepared:", serializeBigInts(userOp));
-
-      updateStep(2, {
-        status: "UserOperation created and signed",
-        isComplete: true,
-      });
-
-      // Step 4: Submit userOp
-      addStep({
-        status: "Submitting userOperation...",
-        isComplete: false,
-      });
-
-      const submitResponse = await fetch("/api/verify-passkey/submit", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          userOp: serializeBigInts(userOp),
-          useAnvil,
-        }),
-      });
-
-      if (!submitResponse.ok) {
-        const error = await submitResponse.text();
-        updateStep(3, { error, isComplete: true });
-        return;
-      }
-
-      const { txHash, userOpHash } = await submitResponse.json();
-      updateStep(3, {
-        status: "Waiting for userOperation transaction...",
-        isComplete: false,
-        txHash,
-        userOpHash,
-      });
-
-      await waitForTransaction(txHash, chain);
-      updateStep(3, {
-        status: "UserOperation submitted successfully",
-        isComplete: true,
-        txHash,
-        userOpHash,
-      });
-
-      // Step 5: Retrieve unused deposit
-      addStep({
-        status: "Retrieving unused deposit...",
-        isComplete: false,
-      });
-
-      const retrieveResponse = await fetch("/api/verify-passkey/retrieve", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          smartWalletAddress,
-          useAnvil,
-        }),
-      });
-
-      if (!retrieveResponse.ok) {
-        const error = await retrieveResponse.text();
-        updateStep(4, { error, isComplete: true });
-        return;
-      }
-
-      const { txHash: retrieveTxHash } = await retrieveResponse.json();
-      if (retrieveTxHash) {
-        updateStep(4, {
-          status: "Waiting for withdrawal transaction...",
-          isComplete: false,
-          txHash: retrieveTxHash,
-        });
-
-        await waitForTransaction(retrieveTxHash, chain);
-        updateStep(4, {
-          status: "Successfully retrieved unused deposit",
-          isComplete: true,
-          txHash: retrieveTxHash,
-        });
-      } else {
-        updateStep(4, {
-          status: "No unused deposit to retrieve",
-          isComplete: true,
-        });
-      }
-      setIsVerified(true);
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
-      addStep({
-        status: "Verification failed",
-        isComplete: true,
-        error: errorMessage,
-      });
-    } finally {
-      setVerifying(false);
-    }
-  }, [smartWalletAddress, passkey, useAnvil, chain, isDelegateDisrupted, isImplementationDisrupted]);
-
+  // This function is called when the user clicks the "Restore Account" button
+  // Handles the logic for recovering the account from a delegate or implementation disruption,
+  // or both.
   const handleRecover = async () => {
     try {
       setVerifying(true);
@@ -458,39 +130,29 @@ export function PasskeyVerification({
         isComplete: false,
       });
 
-      // Create user's wallet client for signing
-      const userWallet = createEOAClient(account, useAnvil);
-      console.log("EOA account for signing:", {
-        address: account.address,
-        hasPrivateKey: !!account._privateKey,
-      });
-
+      const userWallet = createEOAClient(account);
       const publicClient = createPublicClient({
         chain,
         transport: http(),
       });
 
-      // Mark initial step as complete
       updateStep(0, {
         status: "Account recovery initialized",
         isComplete: true,
       });
 
-      // Case 1: Only delegate is disrupted
       if (isDelegateDisrupted && !isImplementationDisrupted) {
         addStep({
           status: "Resetting delegate...",
           isComplete: false,
         });
 
-        // Create authorization for the correct proxy template
         const authorization = await userWallet.signAuthorization({
-          contractAddress: PROXY_TEMPLATE_ADDRESSES[useAnvil ? 'anvil' : 'odyssey'],
+          contractAddress: EIP7702PROXY_TEMPLATE_ADDRESS,
           sponsor: true,
           chainId: 0,
         });
 
-        // Submit via relay endpoint
         const response = await fetch("/api/relay", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -523,61 +185,26 @@ export function PasskeyVerification({
         });
       }
 
-      // Case 2: Only implementation is disrupted
       else if (!isDelegateDisrupted && isImplementationDisrupted) {
         addStep({
           status: "Resetting implementation to correct version...",
           isComplete: false,
         });
 
-        // Get current implementation from storage
-        const implementationSlotData = await publicClient.getStorageAt({
-          address: smartWalletAddress,
-          slot: ERC1967_IMPLEMENTATION_SLOT,
-        });
-        
-        if (!implementationSlotData) {
-          throw new Error("Failed to read implementation slot");
-        }
-        
-        // Convert the storage data to an address (take last 20 bytes)
-        const currentImplementation = `0x${implementationSlotData.slice(-40)}` as Address;
-        console.log("Current implementation:", currentImplementation);
+        const currentImplementation = await getCurrentImplementation(publicClient, smartWalletAddress);
+        const nonce = await getNonceFromTracker(publicClient, smartWalletAddress);
+        const chainId = odysseyTestnet.id;
 
-        updateStep(1, {
-          status: "Reading current implementation state...",
-          isComplete: true,
-        });
-
-        // Get the current nonce from NonceTracker
-        const nonce = await publicClient.readContract({
-          address: NONCE_TRACKER_ADDRESS,
-          abi: [{
-            type: "function",
-            name: "nonces",
-            inputs: [{ name: "account", type: "address" }],
-            outputs: [{ type: "uint256" }],
-            stateMutability: "view"
-          }],
-          functionName: "nonces",
-          args: [smartWalletAddress],
-        });
-        console.log("Current nonce from NonceTracker:", nonce.toString());
-
-        // Create the setImplementation hash
-        const chainId = useAnvil ? localAnvil.id : odysseyTestnet.id;
-        console.log("Chain ID:", chainId);
         const setImplementationHash = createSetImplementationHash(
-          PROXY_TEMPLATE_ADDRESSES[useAnvil ? 'anvil' : 'odyssey'],
-          NEW_IMPLEMENTATION_ADDRESS,
-          "0x", // No initialization needed for reset
+          EIP7702PROXY_TEMPLATE_ADDRESS,
+          CBSW_IMPLEMENTATION_ADDRESS,
+          "0x",
           nonce,
           currentImplementation,
-          false, // allowCrossChainReplay
+          false,
           BigInt(chainId)
         );
 
-        // Sign the hash using the EOA
         const signature = await signSetImplementation(userWallet, setImplementationHash);
 
         updateStep(1, {
@@ -585,7 +212,6 @@ export function PasskeyVerification({
           isComplete: true,
         });
 
-        // Submit via relay endpoint
         const response = await fetch("/api/relay", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -618,70 +244,41 @@ export function PasskeyVerification({
         });
       }
 
-      // Case 3: Both delegate and implementation are disrupted
       else if (isDelegateDisrupted && isImplementationDisrupted) {
         addStep({
           status: "Resetting both delegate and implementation...",
           isComplete: false,
         });
 
-        // Create authorization for the correct proxy template
         const authorization = await userWallet.signAuthorization({
-          contractAddress: PROXY_TEMPLATE_ADDRESSES[useAnvil ? 'anvil' : 'odyssey'],
+          contractAddress: EIP7702PROXY_TEMPLATE_ADDRESS,
           sponsor: true,
           chainId: 0,
         });
 
-        // Get current implementation from storage
-        const implementationSlotData = await publicClient.getStorageAt({
-          address: smartWalletAddress,
-          slot: ERC1967_IMPLEMENTATION_SLOT,
-        });
+        const currentImplementation = await getCurrentImplementation(publicClient, smartWalletAddress);
+        const nonce = await getNonceFromTracker(publicClient, smartWalletAddress);
+        const chainId = odysseyTestnet.id;
         
-        if (!implementationSlotData) {
-          throw new Error("Failed to read implementation slot");
-        }
-        
-        // Convert the storage data to an address (take last 20 bytes)
-        const currentImplementation = `0x${implementationSlotData.slice(-40)}` as Address;
-        // Get the current nonce from NonceTracker
-        const nonce = await publicClient.readContract({
-          address: NONCE_TRACKER_ADDRESS,
-          abi: [{
-            type: "function",
-            name: "nonces",
-            inputs: [{ name: "account", type: "address" }],
-            outputs: [{ type: "uint256" }],
-            stateMutability: "view"
-          }],
-          functionName: "nonces",
-          args: [smartWalletAddress],
-        });
-        console.log("Current nonce from NonceTracker:", nonce.toString());
-
-        // Create and sign the setImplementation hash
-        const chainId = useAnvil ? localAnvil.id : odysseyTestnet.id;
         const setImplementationHash = createSetImplementationHash(
-          PROXY_TEMPLATE_ADDRESSES[useAnvil ? 'anvil' : 'odyssey'],
-          NEW_IMPLEMENTATION_ADDRESS,
+          EIP7702PROXY_TEMPLATE_ADDRESS,
+          CBSW_IMPLEMENTATION_ADDRESS,
           "0x", // No initialization needed for reset
           nonce,
           currentImplementation,
-          false, // allowCrossChainReplay
+          false,
           BigInt(chainId)
         );
 
-        // Sign the hash using the EOA
         const signature = await signSetImplementation(userWallet, setImplementationHash);
 
-        // Submit via relay endpoint using the upgradeEOA operation
         const response = await fetch("/api/relay", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             operation: "upgradeEOA",
             targetAddress: smartWalletAddress,
-            initArgs: "0x", // No initialization needed
+            initArgs: "0x",
             signature,
             authorizationList: [authorization],
           }, (_, value) => 
@@ -729,6 +326,279 @@ export function PasskeyVerification({
     }
   };
 
+  const updateStep = (index: number, updates: Partial<VerificationStep>) => {
+    setSteps((current) =>
+      current.map((step, i) => (i === index ? { ...step, ...updates } : step))
+    );
+  };
+
+  const addStep = (step: VerificationStep) => {
+    setSteps((current) => [...current, step]);
+  };
+
+  const checkState = async () => {
+    const publicClient = createPublicClient({
+      chain: odysseyTestnet,
+      transport: http(),
+    });
+
+    const state = await checkContractState(publicClient, smartWalletAddress);
+    onStateChange(state.bytecode, state.implementation);
+  };
+
+  const handleVerify = useCallback(async () => {
+    if (isDelegateDisrupted || isImplementationDisrupted) {
+      setShowRecoveryModal(true);
+      return;
+    }
+
+    try {
+      setVerifying(true);
+      setSteps([]);
+      setIsVerified(false);
+
+      console.log("Creating WebAuthn account from passkey...");
+      const webAuthnAccount = toWebAuthnAccount({ credential: passkey });
+      console.log("WebAuthn account public key:", webAuthnAccount.publicKey);
+
+      const publicClient = createPublicClient({
+        chain,
+        transport: http(),
+      });
+
+      addStep({
+        status: "Checking account balances...",
+        isComplete: false,
+      });
+
+      const { accountBalance, entryPointDeposit, needsDeposit } = await checkAccountBalances(publicClient, smartWalletAddress);
+
+      if (accountBalance === BigInt(0)) {
+        updateStep(0, {
+          status: "Funding smart account with 1 wei...",
+          isComplete: false,
+        });
+
+        console.log("Smart account has no balance, sending 1 wei from relayer...");
+        const response = await fetch("/api/relay", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            operation: "fund",
+            targetAddress: smartWalletAddress,
+            value: "1",
+          }),
+        });
+        if (!response.ok) {
+          throw new Error("Failed to fund smart account");
+        }
+        const { hash } = await response.json();
+        console.log("Funding transaction hash:", hash);
+        await waitForTransaction(hash as Hash, chain);
+        console.log("Smart account funded with 1 wei");
+      }
+
+      updateStep(0, {
+        status: "Smart account balance verified",
+        isComplete: true,
+      });
+
+      if (needsDeposit) {
+        console.log("Insufficient deposit, pre-funding required...");
+        addStep({
+          status: "Pre-funding smart account gas in EntryPoint...",
+          isComplete: false,
+        });
+
+        const depositResponse = await fetch("/api/verify-passkey/deposit", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ smartWalletAddress }),
+        });
+
+        if (!depositResponse.ok) {
+          const error = await depositResponse.text();
+          updateStep(1, { error, isComplete: true });
+          return;
+        }
+
+        const { txHash: depositTxHash } = await depositResponse.json();
+        console.log("Deposit transaction hash:", depositTxHash);
+        updateStep(1, {
+          status: "Waiting for EntryPoint pre-funding transaction...",
+          isComplete: false,
+          txHash: depositTxHash,
+        });
+
+        await waitForTransaction(depositTxHash, chain);
+        const { entryPointDeposit: newDeposit } = await checkAccountBalances(publicClient, smartWalletAddress);
+        console.log("New deposit balance:", newDeposit.toString(), "wei");
+
+        updateStep(1, {
+          status: "EntryPoint pre-funding complete",
+          isComplete: true,
+          txHash: depositTxHash,
+        });
+      }
+
+      addStep({
+        status: "Creating and signing userOp to transfer 1 wei to relayer...",
+        isComplete: false,
+      });
+
+      console.log("Getting owner index...");
+      const nextOwnerIndex = await publicClient.readContract({
+        address: smartWalletAddress,
+        abi: [
+          {
+            type: "function",
+            name: "nextOwnerIndex",
+            inputs: [],
+            outputs: [{ type: "uint256", name: "" }],
+            stateMutability: "view",
+          },
+        ],
+        functionName: "nextOwnerIndex",
+      });
+
+      const ourOwnerIndex = Number(nextOwnerIndex - BigInt(1));
+      console.log("Using owner index:", ourOwnerIndex);
+
+      console.log("Creating smart account client...");
+      const smartAccount = await toCoinbaseSmartAccount({
+        client: publicClient,
+        owners: [webAuthnAccount],
+        address: smartWalletAddress,
+        ownerIndex: ourOwnerIndex,
+      });
+
+      console.log("Encoding transfer call...");
+      const callData = await smartAccount.encodeCalls([
+        {
+          to: process.env.NEXT_PUBLIC_RELAYER_ADDRESS as Address,
+          value: BigInt(1),
+          data: "0x" as const,
+        },
+      ]);
+
+      console.log("Getting nonce...");
+      const nonce = await smartAccount.getNonce();
+      console.log("Current nonce:", nonce.toString());
+
+      console.log("Preparing userOperation...");
+      const unsignedUserOp = {
+        sender: smartAccount.address,
+        nonce,
+        initCode: "0x" as const,
+        callData,
+        callGasLimit: BigInt(500000),
+        verificationGasLimit: BigInt(500000),
+        preVerificationGas: BigInt(100000),
+        maxFeePerGas: BigInt(3000000000),
+        maxPriorityFeePerGas: BigInt(2000000000),
+        paymasterAndData: "0x" as const,
+        signature: "0x" as const,
+      } as const;
+
+      console.log("Signing userOperation...");
+      const signature = await smartAccount.signUserOperation(unsignedUserOp);
+
+      const userOp = { ...unsignedUserOp, signature } as UserOperation;
+
+      updateStep(2, {
+        status: "UserOperation created and signed",
+        isComplete: true,
+      });
+
+      addStep({
+        status: "Submitting userOperation...",
+        isComplete: false,
+      });
+
+      const submitResponse = await fetch("/api/verify-passkey/submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userOp: serializeBigInts(userOp),
+        }),
+      });
+
+      if (!submitResponse.ok) {
+        const error = await submitResponse.text();
+        updateStep(3, { error, isComplete: true });
+        return;
+      }
+
+      const { txHash, userOpHash } = await submitResponse.json();
+      updateStep(3, {
+        status: "Waiting for userOperation transaction...",
+        isComplete: false,
+        txHash,
+        userOpHash,
+      });
+
+      await waitForTransaction(txHash, chain);
+      updateStep(3, {
+        status: "UserOperation submitted successfully",
+        isComplete: true,
+        txHash,
+        userOpHash,
+      });
+
+      addStep({
+        status: "Retrieving unused deposit...",
+        isComplete: false,
+      });
+
+      const retrieveResponse = await fetch("/api/verify-passkey/retrieve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          smartWalletAddress,
+        }),
+      });
+
+      if (!retrieveResponse.ok) {
+        const error = await retrieveResponse.text();
+        updateStep(4, { error, isComplete: true });
+        return;
+      }
+
+      const { txHash: retrieveTxHash } = await retrieveResponse.json();
+      if (retrieveTxHash) {
+        updateStep(4, {
+          status: "Waiting for withdrawal transaction...",
+          isComplete: false,
+          txHash: retrieveTxHash,
+        });
+
+        await waitForTransaction(retrieveTxHash, chain);
+        updateStep(4, {
+          status: "Successfully retrieved unused deposit",
+          isComplete: true,
+          txHash: retrieveTxHash,
+        });
+      } else {
+        updateStep(4, {
+          status: "No unused deposit to retrieve",
+          isComplete: true,
+        });
+      }
+      setIsVerified(true);
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      addStep({
+        status: "Verification failed",
+        isComplete: true,
+        error: errorMessage,
+      });
+    } finally {
+      setVerifying(false);
+    }
+  }, [smartWalletAddress, passkey, chain, isDelegateDisrupted, isImplementationDisrupted]);
+
+
   return (
     <div className="flex flex-col items-center w-full max-w-5xl mx-auto mt-8">
       <button
@@ -741,7 +611,7 @@ export function PasskeyVerification({
 
       <div className="w-full space-y-4">
         {steps.map((step, index) => (
-          <StepDisplay key={index} step={step} useAnvil={useAnvil} />
+          <StepDisplay key={index} step={step} />
         ))}
       </div>
 

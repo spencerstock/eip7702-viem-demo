@@ -2,27 +2,25 @@ import { useState, useEffect } from "react";
 import { createPublicClient, http, type Hex } from "viem";
 import {
   createEOAWallet,
-  getRelayerWalletClient,
   createEOAClient,
   encodeInitializeArgs,
   createSetImplementationHash,
   signSetImplementation,
   type ExtendedAccount,
-  localAnvil,
 } from "../lib/wallet-utils";
-import { EIP7702ProxyAddresses } from "../lib/abi/EIP7702Proxy";
 import { odysseyTestnet } from "../lib/chains";
 import {
   createWebAuthnCredential,
   type P256Credential,
 } from "viem/account-abstraction";
 import {
-  NEW_IMPLEMENTATION_ADDRESS,
+  CBSW_IMPLEMENTATION_ADDRESS,
   ZERO_ADDRESS,
-} from "../lib/contracts";
+  EIP7702PROXY_TEMPLATE_ADDRESS,
+} from "../lib/constants";
+import { getNonceFromTracker, verifyPasskeyOwnership, checkContractState } from "../lib/contract-utils";
 
 interface WalletManagerProps {
-  useAnvil: boolean;
   onWalletCreated: (address: string, explorerLink: string | null) => void;
   onUpgradeComplete: (
     address: `0x${string}`,
@@ -36,30 +34,23 @@ interface WalletManagerProps {
 
 function formatError(error: any): string {
   let errorMessage = "Failed to upgrade wallet: ";
-
   if (error.shortMessage) {
     errorMessage += error.shortMessage;
   } else if (error.message) {
     errorMessage += error.message;
   }
-
   // Check for contract revert reasons
   if (error.data?.message) {
     errorMessage += `\nContract message: ${error.data.message}`;
   }
-
   return errorMessage;
 }
 
-function formatExplorerLink(hash: string, useAnvil: boolean, type: 'transaction' | 'address' = 'transaction'): string | null {
-  if (useAnvil) {
-    return null;
-  }
+function formatExplorerLink(hash: string, type: 'transaction' | 'address' = 'transaction'): string | null {
   return `${odysseyTestnet.blockExplorers.default.url}/${type}/${hash}`;
 }
 
 export function WalletManager({
-  useAnvil,
   onWalletCreated,
   onUpgradeComplete,
   resetKey,
@@ -81,13 +72,14 @@ export function WalletManager({
     setStatus("");
   }, [resetKey]);
 
+  // Creates a random new EOA wallet
   const handleCreateEOA = async () => {
     try {
       setLoading(true);
       setError(null);
       const newAccount = await createEOAWallet();
       setAccount(newAccount);
-      const explorerLink = formatExplorerLink(newAccount.address, useAnvil, 'address');
+      const explorerLink = formatExplorerLink(newAccount.address, 'address');
       onWalletCreated(newAccount.address, explorerLink);
       onAccountCreated(newAccount);
     } catch (error) {
@@ -98,6 +90,7 @@ export function WalletManager({
     }
   };
 
+  // Upgrades the EOA wallet to a CoinbaseSmartWallet and initializes passkey ownership
   const handleUpgradeWallet = async () => {
     if (!account) return;
 
@@ -110,21 +103,15 @@ export function WalletManager({
       console.log("EOA address:", account.address);
 
       // Create user's wallet client for signing
-      const userWallet = createEOAClient(account, useAnvil);
+      const userWallet = createEOAClient(account);
 
       // Create public client for reading state
       const publicClient = createPublicClient({
-        chain: useAnvil ? localAnvil : odysseyTestnet,
+        chain: odysseyTestnet,
         transport: http(),
       });
 
-      // Get the proxy address based on network
-      const proxyAddress = useAnvil
-        ? EIP7702ProxyAddresses.anvil
-        : EIP7702ProxyAddresses.odyssey;
-      console.log("Proxy template address:", proxyAddress);
-
-      // Create a new passkey
+        // Create a new passkey
       setStatus("Creating new passkey...");
       const passkey = await createWebAuthnCredential({
         name: "Smart Wallet Owner",
@@ -132,23 +119,24 @@ export function WalletManager({
       onPasskeyStored(passkey);
 
       // Create initialization args with both relayer and passkey as owners
+      // We include the relayer as owner only for the purposes of this demo, which allows the relayer
+      // to retrieve their entrypoint deposit while serving as a lightweight bundler.
       setStatus("Preparing initialization data and signature...");
       const initArgs = encodeInitializeArgs([
-        useAnvil
-          ? ((await getRelayerWalletClient(true)).account.address as Hex)
-          : (process.env.NEXT_PUBLIC_RELAYER_ADDRESS as Hex),
+        (process.env.NEXT_PUBLIC_RELAYER_ADDRESS as Hex),
         passkey,
       ]);
+      const nonce = await getNonceFromTracker(publicClient, account.address);
+      const chainId = odysseyTestnet.id;
 
-      // Create the setImplementation hash
-      const chainId = useAnvil ? localAnvil.id : odysseyTestnet.id;
+      // Create the setImplementationHash for the upgrade transaction
       const setImplementationHash = createSetImplementationHash(
-        proxyAddress,
-        NEW_IMPLEMENTATION_ADDRESS,
+        EIP7702PROXY_TEMPLATE_ADDRESS,
+        CBSW_IMPLEMENTATION_ADDRESS,
         initArgs,
-        BigInt(0), // nonce
-        ZERO_ADDRESS, // currentImplementation
-        false, // allowCrossChainReplay
+        nonce,
+        ZERO_ADDRESS,
+        false,
         BigInt(chainId)
       );
 
@@ -157,27 +145,13 @@ export function WalletManager({
 
       // Create the authorization signature for EIP-7702
       setStatus("Creating authorization signature...");
-      console.log("\n=== Creating initial upgrade authorization ===");
-      console.log("EOA address:", account.address);
-      console.log("Target contract:", proxyAddress);
-      console.log("Sponsor:", useAnvil
-        ? (await getRelayerWalletClient(true)).account.address
-        : process.env.NEXT_PUBLIC_RELAYER_ADDRESS);
       const authorization = await userWallet.signAuthorization({
-        contractAddress: proxyAddress,
-        sponsor: useAnvil
-          ? (
-              await getRelayerWalletClient(true)
-            ).account.address
-          : (process.env.NEXT_PUBLIC_RELAYER_ADDRESS as `0x${string}`),
-      });
-      console.log("Created authorization:", {
-        hasSignature: !!authorization,
-        authorizationDetails: authorization,
+        contractAddress: EIP7702PROXY_TEMPLATE_ADDRESS,
+        sponsor: (process.env.NEXT_PUBLIC_RELAYER_ADDRESS as `0x${string}`), // the relayer will submit this signature
       });
 
       // Submit the combined upgrade transaction
-      setStatus("✓ Submitting upgrade transaction...");
+      setStatus("Submitting upgrade transaction...");
       const upgradeResponse = await fetch("/api/relay", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -198,59 +172,40 @@ export function WalletManager({
         throw new Error(error.error || "Failed to relay upgrade transaction");
       }
       const upgradeHash = (await upgradeResponse.json()).hash;
-      console.log("✓ Upgrade transaction submitted:", upgradeHash);
+      console.log("Upgrade transaction submitted:", upgradeHash);
 
       // Wait for the upgrade transaction to be mined
-      setStatus("✓ Waiting for upgrade transaction confirmation...");
+      setStatus("Waiting for upgrade transaction confirmation...");
       const upgradeReceipt = await publicClient.waitForTransactionReceipt({
         hash: upgradeHash,
       });
       if (upgradeReceipt.status !== "success") {
         throw new Error("Upgrade transaction failed");
       }
-      console.log("✓ Upgrade transaction confirmed");
+      console.log("Upgrade transaction confirmed");
 
       // Check if the code was deployed
-      setStatus("✓ Verifying deployment...");
-      const code = await publicClient.getCode({ address: account.address });
+      setStatus("Verifying deployment...");
+      const state = await checkContractState(publicClient, account.address);
 
-      if (code && code !== "0x") {
+      // TODO: establish constant expected bytecode in the contracts.ts file and use here and elsewhere
+      if (state.bytecode !== "0x") {
         console.log("✓ Code deployed successfully");
         
         // Verify passkey ownership
         setStatus("✓ Verifying passkey ownership...");
-        const isOwner = await publicClient.readContract({
-          address: account.address,
-          abi: [
-            {
-              type: "function",
-              name: "isOwnerPublicKey",
-              inputs: [
-                { name: "x", type: "bytes32" },
-                { name: "y", type: "bytes32" },
-              ],
-              outputs: [{ type: "bool" }],
-              stateMutability: "view",
-            },
-          ],
-          functionName: "isOwnerPublicKey",
-          args: [
-            `0x${passkey.publicKey.slice(2, 66)}` as `0x${string}`,
-            `0x${passkey.publicKey.slice(66)}` as `0x${string}`,
-          ],
-        });
+        const isOwner = await verifyPasskeyOwnership(publicClient, account.address, passkey);
 
         if (!isOwner) {
           throw new Error("Passkey verification failed: not registered as an owner");
         }
 
         console.log("\n=== Wallet upgrade complete ===");
-        console.log("Smart wallet address:", account.address);
         setStatus("✓ EOA has been upgraded to a Coinbase Smart Wallet with verified passkey!");
         onUpgradeComplete(
           account.address as `0x${string}`,
           upgradeHash,
-          code
+          state.bytecode
         );
         setIsUpgraded(true);
       } else {

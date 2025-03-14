@@ -1,20 +1,20 @@
 import { useState, useEffect } from "react";
-import { type Address, createPublicClient, http, type Hex, encodeFunctionData } from "viem";
+import { type Address, createPublicClient, http, encodeFunctionData } from "viem";
 import { odysseyTestnet } from "@/app/lib/chains";
-import { localAnvil, createEOAClient, type ExtendedAccount, getRelayerWalletClient, createSetImplementationHash, signSetImplementation } from "@/app/lib/wallet-utils";
-import { NEW_IMPLEMENTATION_ADDRESS, PROXY_TEMPLATE_ADDRESSES, VALIDATOR_ADDRESS, ZERO_ADDRESS, ERC1967_SLOT, MAGIC_PREFIX, FOREIGN_DELEGATE, FOREIGN_IMPLEMENTATION } from "@/app/lib/contracts";
+import { createEOAClient, type ExtendedAccount } from "@/app/lib/wallet-utils";
+import { CBSW_IMPLEMENTATION_ADDRESS, FOREIGN_7702_DELEGATE, FOREIGN_1967_IMPLEMENTATION } from "@/app/lib/constants";
 import { AccountState } from "./AccountState";
+import { checkContractState, getCurrentImplementation, getExpectedBytecode } from "@/app/lib/contract-utils";
 
-// Helper to check if bytecode is correct (includes magic prefix)
+// Helper to check if bytecode is correct
 const isCorrectBytecode = (bytecode: string) => {
-  const expectedBytecode = `${MAGIC_PREFIX}${PROXY_TEMPLATE_ADDRESSES.odyssey.slice(2).toLowerCase()}`;
+  const expectedBytecode = getExpectedBytecode();
   return bytecode.toLowerCase() === expectedBytecode.toLowerCase();
 };
 
 interface Props {
   account: ExtendedAccount;
   smartWalletAddress: Address;
-  useAnvil: boolean;
   onDisruptionComplete: (type: 'delegate' | 'implementation') => void;
   currentBytecode: string | null;
   currentSlotValue: string | null;
@@ -24,7 +24,6 @@ interface Props {
 export function AccountDisruption({
   account,
   smartWalletAddress,
-  useAnvil,
   onDisruptionComplete,
   currentBytecode,
   currentSlotValue,
@@ -34,18 +33,15 @@ export function AccountDisruption({
   const [implementationLoading, setImplementationLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Separate effects for tracking delegate and implementation states
   useEffect(() => {
     const checkDelegateState = async () => {
       const publicClient = createPublicClient({
-        chain: useAnvil ? localAnvil : odysseyTestnet,
+        chain: odysseyTestnet,
         transport: http(),
       });
 
-      const code = await publicClient.getCode({ address: account.address });
-      console.log("\n=== Checking Delegate State ===");
-      console.log("Current bytecode:", code);
-      onStateChange(code || "0x", currentSlotValue); // Preserve current implementation state
+      const state = await checkContractState(publicClient, account.address);
+      onStateChange(state.bytecode, currentSlotValue); 
     };
 
     checkDelegateState();
@@ -54,61 +50,28 @@ export function AccountDisruption({
   useEffect(() => {
     const checkImplementationState = async () => {
       const publicClient = createPublicClient({
-        chain: useAnvil ? localAnvil : odysseyTestnet,
+        chain: odysseyTestnet,
         transport: http(),
       });
 
-      const slotValue = await publicClient.getStorageAt({ 
-        address: account.address,
-        slot: ERC1967_SLOT
-      });
-
-      // Format the slot value as an address (take last 20 bytes)
-      const implementationAddress = slotValue 
-        ? `0x${(slotValue as string).slice(-40)}` 
-        : "0x";
-
-      console.log("\n=== Checking Implementation State ===");
-      console.log("Current implementation:", implementationAddress);
-      onStateChange(currentBytecode, implementationAddress); // Preserve current bytecode state
+      const implementation = await getCurrentImplementation(publicClient, account.address);
+      onStateChange(currentBytecode, implementation); // Preserve current bytecode state
     };
 
     checkImplementationState();
   }, []); // Run once on mount
 
-  // Function to check both states after disruption
+  // Function to check both delegate and implementation states after disruption
   const checkState = async () => {
     const publicClient = createPublicClient({
-      chain: useAnvil ? localAnvil : odysseyTestnet,
+      chain: odysseyTestnet,
       transport: http(),
     });
 
-    const [code, slotValue] = await Promise.all([
-      publicClient.getCode({ address: account.address }),
-      publicClient.getStorageAt({ 
-        address: account.address,
-        slot: ERC1967_SLOT
-      })
-    ]);
+    const state = await checkContractState(publicClient, account.address);
+    onStateChange(state.bytecode, state.implementation);
 
-    // Format the slot value as an address (take last 20 bytes)
-    const implementationAddress = slotValue 
-      ? `0x${(slotValue as string).slice(-40)}` 
-      : "0x";
-
-    console.log("\n=== Current EOA State ===");
-    console.log("EOA address:", account.address);
-    console.log("Current bytecode:", code || "0x");
-    console.log("Current ERC-1967 slot value (raw):", slotValue || "0x");
-    console.log("Current implementation address:", implementationAddress);
-    
-    // Update both states at once to avoid race conditions
-    onStateChange(code || "0x", implementationAddress);
-
-    return {
-      code: code || "0x",
-      slotValue: implementationAddress
-    };
+    return state;
   };
 
   const handleDelegateForeign = async () => {
@@ -117,35 +80,24 @@ export function AccountDisruption({
       setError(null);
 
       // Create user's wallet client for signing
-      const userWallet = createEOAClient(account, useAnvil);
-      console.log("EOA account for signing:", {
-        address: account.address,
-        hasPrivateKey: !!account._privateKey,
-      });
-
-      // Get initial state
-      console.log("\n=== Checking initial state ===");
+      const userWallet = createEOAClient(account);
       const initialState = await checkState();
 
       // Get the relayer address
-      const relayerAddress = useAnvil
-        ? (await getRelayerWalletClient(true)).account.address
-        : (process.env.NEXT_PUBLIC_RELAYER_ADDRESS as `0x${string}`);
+      const relayerAddress = (process.env.NEXT_PUBLIC_RELAYER_ADDRESS as `0x${string}`);
       console.log("Using relayer address:", relayerAddress);
 
-      // Create public client to get nonce
+      // Create public client for transaction monitoring
       const publicClient = createPublicClient({
-        chain: useAnvil ? localAnvil : odysseyTestnet,
+        chain: odysseyTestnet,
         transport: http(),
       });
 
       // Create authorization signature for the smart wallet to change its delegate
       console.log("\n=== Creating re-delegation authorization ===");
-      console.log("EOA address:", account.address);
-      console.log("Target address:", FOREIGN_DELEGATE);
-      console.log("Sponsor:", relayerAddress);
+      console.log("Target delegate:", FOREIGN_7702_DELEGATE);
       const authorization = await userWallet.signAuthorization({
-        contractAddress: FOREIGN_DELEGATE,
+        contractAddress: FOREIGN_7702_DELEGATE,
         sponsor: true,
         chainId: 0,
       });
@@ -156,7 +108,7 @@ export function AccountDisruption({
       });
 
       // Submit via relay endpoint
-      console.log("Submitting via relay endpoint...");
+      console.log("Submitting authorization for re-delegation...");
       const response = await fetch("/api/relay", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -180,12 +132,10 @@ export function AccountDisruption({
       const receipt = await publicClient.waitForTransactionReceipt({ hash });
       console.log("Transaction receipt:", receipt);
 
-      // Check the final state
-      console.log("\n=== Checking final state ===");
       const finalState = await checkState();
 
       // For delegation, check if bytecode changed
-      if (finalState.code === initialState.code) {
+      if (finalState.bytecode === initialState.bytecode) {
         console.warn("⚠️ Warning: Bytecode did not change after delegation attempt");
       }
 
@@ -202,28 +152,18 @@ export function AccountDisruption({
     try {
       setImplementationLoading(true);
       
-      // Create user's wallet client for signing
-      const userWallet = createEOAClient(account, useAnvil);
-      console.log("EOA account for signing:", {
-        address: account.address,
-        hasPrivateKey: !!account._privateKey,
-      });
-
-      // Get initial state for comparison
-      console.log("\n=== Checking initial state ===");
+      const userWallet = createEOAClient(account);
       const initialState = await checkState();
 
       // Create public client for balance check and transaction monitoring
       const publicClient = createPublicClient({
-        chain: useAnvil ? localAnvil : odysseyTestnet,
+        chain: odysseyTestnet,
         transport: http(),
       });
 
       // Check EOA balance and fund if needed
       const balance = await publicClient.getBalance({ address: account.address });
-      console.log("Current EOA balance:", balance.toString(), "wei");
-      
-      const requiredBalance = BigInt(600000000000000); // 0.0006 ETH in wei
+      const requiredBalance = BigInt(1000000000000000); // 0.001 ETH in wei
       if (balance < requiredBalance) {
         const fundingAmount = requiredBalance - balance;
         console.log(`Funding EOA with ${fundingAmount.toString()} wei...`);
@@ -242,7 +182,6 @@ export function AccountDisruption({
         }
         
         const { hash } = await fundResponse.json();
-        console.log("Funding transaction submitted:", hash);
         await publicClient.waitForTransactionReceipt({ hash });
         
         const newBalance = await publicClient.getBalance({ address: account.address });
@@ -253,8 +192,7 @@ export function AccountDisruption({
 
       // Submit upgradeToAndCall directly from the EOA
       console.log("\n=== Submitting upgradeToAndCall ===");
-      console.log("EOA address:", account.address);
-      console.log("Target implementation:", FOREIGN_IMPLEMENTATION);
+      console.log("Target implementation:", FOREIGN_1967_IMPLEMENTATION);
       
       const hash = await userWallet.sendTransaction({
         to: account.address,
@@ -270,11 +208,11 @@ export function AccountDisruption({
             stateMutability: "nonpayable"
           }],
           functionName: "upgradeToAndCall",
-          args: [FOREIGN_IMPLEMENTATION, "0x"]
+          args: [FOREIGN_1967_IMPLEMENTATION, "0x"]
         }),
-        gas: BigInt(500000), // Much higher gas limit for contract deployment
-        maxFeePerGas: BigInt(1100000327), // 1.100000327 gwei
-        maxPriorityFeePerGas: BigInt(1100000025), // 1.100000025 gwei
+        gas: BigInt(500000),
+        maxFeePerGas: BigInt(1100000327),
+        maxPriorityFeePerGas: BigInt(1100000025),
         value: BigInt(0)
       });
       
@@ -285,11 +223,10 @@ export function AccountDisruption({
       console.log("Transaction receipt:", receipt);
 
       // Check final state
-      console.log("\n=== Checking final state ===");
       const finalState = await checkState();
 
       // For implementation change, check if ERC-1967 slot value changed
-      if (finalState.slotValue === initialState.slotValue) {
+      if (finalState.implementation === initialState.implementation) {
         console.warn("⚠️ Warning: ERC-1967 slot value did not change after implementation change attempt");
       }
 
@@ -319,7 +256,7 @@ export function AccountDisruption({
 
           <button
             onClick={handleSetForeignImplementation}
-            disabled={implementationLoading || (!!currentSlotValue && currentSlotValue.toLowerCase() !== NEW_IMPLEMENTATION_ADDRESS.toLowerCase())}
+            disabled={implementationLoading || (!!currentSlotValue && currentSlotValue.toLowerCase() !== CBSW_IMPLEMENTATION_ADDRESS.toLowerCase())}
             className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 disabled:opacity-50"
           >
             {implementationLoading ? "Setting..." : "Set Foreign ERC-1967 Implementation"}
