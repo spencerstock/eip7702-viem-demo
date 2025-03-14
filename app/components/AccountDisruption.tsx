@@ -1,8 +1,8 @@
 import { useState, useEffect } from "react";
 import { type Address, createPublicClient, http, encodeFunctionData } from "viem";
 import { odysseyTestnet } from "@/app/lib/chains";
-import { createEOAClient, type ExtendedAccount, getRelayerWalletClient } from "@/app/lib/wallet-utils";
-import { NEW_IMPLEMENTATION_ADDRESS, FOREIGN_DELEGATE, FOREIGN_IMPLEMENTATION } from "@/app/lib/contracts";
+import { createEOAClient, type ExtendedAccount } from "@/app/lib/wallet-utils";
+import { CBSW_IMPLEMENTATION_ADDRESS, FOREIGN_7702_DELEGATE, FOREIGN_1967_IMPLEMENTATION } from "@/app/lib/constants";
 import { AccountState } from "./AccountState";
 import { checkContractState, getCurrentImplementation, getExpectedBytecode } from "@/app/lib/contract-utils";
 
@@ -95,9 +95,9 @@ export function AccountDisruption({
 
       // Create authorization signature for the smart wallet to change its delegate
       console.log("\n=== Creating re-delegation authorization ===");
-      console.log("Target delegate:", FOREIGN_DELEGATE);
+      console.log("Target delegate:", FOREIGN_7702_DELEGATE);
       const authorization = await userWallet.signAuthorization({
-        contractAddress: FOREIGN_DELEGATE,
+        contractAddress: FOREIGN_7702_DELEGATE,
         sponsor: true,
         chainId: 0,
       });
@@ -192,7 +192,7 @@ export function AccountDisruption({
 
       // Submit upgradeToAndCall directly from the EOA
       console.log("\n=== Submitting upgradeToAndCall ===");
-      console.log("Target implementation:", FOREIGN_IMPLEMENTATION);
+      console.log("Target implementation:", FOREIGN_1967_IMPLEMENTATION);
       
       const hash = await userWallet.sendTransaction({
         to: account.address,
@@ -208,7 +208,7 @@ export function AccountDisruption({
             stateMutability: "nonpayable"
           }],
           functionName: "upgradeToAndCall",
-          args: [FOREIGN_IMPLEMENTATION, "0x"]
+          args: [FOREIGN_1967_IMPLEMENTATION, "0x"]
         }),
         gas: BigInt(500000),
         maxFeePerGas: BigInt(1100000327),
@@ -256,7 +256,7 @@ export function AccountDisruption({
 
           <button
             onClick={handleSetForeignImplementation}
-            disabled={implementationLoading || (!!currentSlotValue && currentSlotValue.toLowerCase() !== NEW_IMPLEMENTATION_ADDRESS.toLowerCase())}
+            disabled={implementationLoading || (!!currentSlotValue && currentSlotValue.toLowerCase() !== CBSW_IMPLEMENTATION_ADDRESS.toLowerCase())}
             className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 disabled:opacity-50"
           >
             {implementationLoading ? "Setting..." : "Set Foreign ERC-1967 Implementation"}

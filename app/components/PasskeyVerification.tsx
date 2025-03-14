@@ -8,9 +8,9 @@ import {
 } from "viem/account-abstraction";
 import { odysseyTestnet } from "../lib/chains";
 import { createSetImplementationHash, type ExtendedAccount, createEOAClient, signSetImplementation } from "../lib/wallet-utils";
-import { serializeBigInts } from "../lib/smart-account";
+import { serializeBigInts } from "../lib/relayer-utils";
 import { RecoveryModal } from "./RecoveryModal";
-import { PROXY_TEMPLATE_ADDRESSES, NEW_IMPLEMENTATION_ADDRESS } from "../lib/contracts";
+import { EIP7702PROXY_TEMPLATE_ADDRESS, CBSW_IMPLEMENTATION_ADDRESS } from "../lib/constants";
 import { getNonceFromTracker, checkContractState, checkAccountBalances, getCurrentImplementation } from "../lib/contract-utils";
 
 type VerificationStep = {
@@ -115,6 +115,216 @@ export function PasskeyVerification({
   const [isVerified, setIsVerified] = useState(false);
   const [showRecoveryModal, setShowRecoveryModal] = useState(false);
   const chain = odysseyTestnet;
+
+
+  // This function is called when the user clicks the "Restore Account" button
+  // Handles the logic for recovering the account from a delegate or implementation disruption,
+  // or both.
+  const handleRecover = async () => {
+    try {
+      setVerifying(true);
+      setSteps([]);
+      setIsVerified(false);
+      addStep({
+        status: "Starting account recovery...",
+        isComplete: false,
+      });
+
+      const userWallet = createEOAClient(account);
+      const publicClient = createPublicClient({
+        chain,
+        transport: http(),
+      });
+
+      updateStep(0, {
+        status: "Account recovery initialized",
+        isComplete: true,
+      });
+
+      if (isDelegateDisrupted && !isImplementationDisrupted) {
+        addStep({
+          status: "Resetting delegate...",
+          isComplete: false,
+        });
+
+        const authorization = await userWallet.signAuthorization({
+          contractAddress: EIP7702PROXY_TEMPLATE_ADDRESS,
+          sponsor: true,
+          chainId: 0,
+        });
+
+        const response = await fetch("/api/relay", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            operation: "submit7702Auth",
+            targetAddress: smartWalletAddress,
+            authorizationList: [authorization],
+          }, (_, value) => 
+            typeof value === "bigint" ? value.toString() : value
+          ),
+        });
+
+        if (!response.ok) {
+          throw new Error("Failed to reset delegate");
+        }
+
+        const { hash } = await response.json();
+        updateStep(1, {
+          status: "Waiting for delegate reset transaction...",
+          isComplete: false,
+          txHash: hash,
+        });
+
+        await waitForTransaction(hash, chain);
+        await checkState();
+        updateStep(1, {
+          status: "Successfully reset delegate",
+          isComplete: true,
+          txHash: hash,
+        });
+      }
+
+      else if (!isDelegateDisrupted && isImplementationDisrupted) {
+        addStep({
+          status: "Resetting implementation to correct version...",
+          isComplete: false,
+        });
+
+        const currentImplementation = await getCurrentImplementation(publicClient, smartWalletAddress);
+        const nonce = await getNonceFromTracker(publicClient, smartWalletAddress);
+        const chainId = odysseyTestnet.id;
+
+        const setImplementationHash = createSetImplementationHash(
+          EIP7702PROXY_TEMPLATE_ADDRESS,
+          CBSW_IMPLEMENTATION_ADDRESS,
+          "0x",
+          nonce,
+          currentImplementation,
+          false,
+          BigInt(chainId)
+        );
+
+        const signature = await signSetImplementation(userWallet, setImplementationHash);
+
+        updateStep(1, {
+          status: "Preparing implementation reset transaction...",
+          isComplete: true,
+        });
+
+        const response = await fetch("/api/relay", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            operation: "setImplementation",
+            targetAddress: smartWalletAddress,
+            signature,
+          }, (_, value) => 
+            typeof value === "bigint" ? value.toString() : value
+          ),
+        });
+
+        if (!response.ok) {
+          throw new Error("Failed to reset implementation");
+        }
+
+        const { hash } = await response.json();
+        updateStep(1, {
+          status: "Waiting for implementation reset transaction...",
+          isComplete: false,
+          txHash: hash,
+        });
+
+        await waitForTransaction(hash, chain);
+        await checkState();
+        updateStep(1, {
+          status: "Successfully reset implementation",
+          isComplete: true,
+          txHash: hash,
+        });
+      }
+
+      else if (isDelegateDisrupted && isImplementationDisrupted) {
+        addStep({
+          status: "Resetting both delegate and implementation...",
+          isComplete: false,
+        });
+
+        const authorization = await userWallet.signAuthorization({
+          contractAddress: EIP7702PROXY_TEMPLATE_ADDRESS,
+          sponsor: true,
+          chainId: 0,
+        });
+
+        const currentImplementation = await getCurrentImplementation(publicClient, smartWalletAddress);
+        const nonce = await getNonceFromTracker(publicClient, smartWalletAddress);
+        const chainId = odysseyTestnet.id;
+        
+        const setImplementationHash = createSetImplementationHash(
+          EIP7702PROXY_TEMPLATE_ADDRESS,
+          CBSW_IMPLEMENTATION_ADDRESS,
+          "0x", // No initialization needed for reset
+          nonce,
+          currentImplementation,
+          false,
+          BigInt(chainId)
+        );
+
+        const signature = await signSetImplementation(userWallet, setImplementationHash);
+
+        const response = await fetch("/api/relay", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            operation: "upgradeEOA",
+            targetAddress: smartWalletAddress,
+            initArgs: "0x",
+            signature,
+            authorizationList: [authorization],
+          }, (_, value) => 
+            typeof value === "bigint" ? value.toString() : value
+          ),
+        });
+
+        if (!response.ok) {
+          throw new Error("Failed to reset delegate and implementation");
+        }
+
+        const { hash } = await response.json();
+        updateStep(1, {
+          status: "Waiting for reset transaction...",
+          isComplete: false,
+          txHash: hash,
+        });
+
+        await waitForTransaction(hash, chain);
+        await checkState();
+        updateStep(1, {
+          status: "Successfully reset delegate and implementation",
+          isComplete: true,
+          txHash: hash,
+        });
+      }
+
+      onRecoveryComplete();
+      setShowRecoveryModal(false);
+      
+      addStep({
+        status: "Account recovered successfully",
+        isComplete: true,
+      });
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      addStep({
+        status: "Recovery failed",
+        isComplete: true,
+        error: errorMessage,
+      });
+    } finally {
+      setVerifying(false);
+    }
+  };
 
   const updateStep = (index: number, updates: Partial<VerificationStep>) => {
     setSteps((current) =>
@@ -388,211 +598,6 @@ export function PasskeyVerification({
     }
   }, [smartWalletAddress, passkey, chain, isDelegateDisrupted, isImplementationDisrupted]);
 
-  const handleRecover = async () => {
-    try {
-      setVerifying(true);
-      setSteps([]);
-      setIsVerified(false);
-      addStep({
-        status: "Starting account recovery...",
-        isComplete: false,
-      });
-
-      const userWallet = createEOAClient(account);
-      const publicClient = createPublicClient({
-        chain,
-        transport: http(),
-      });
-
-      updateStep(0, {
-        status: "Account recovery initialized",
-        isComplete: true,
-      });
-
-      if (isDelegateDisrupted && !isImplementationDisrupted) {
-        addStep({
-          status: "Resetting delegate...",
-          isComplete: false,
-        });
-
-        const authorization = await userWallet.signAuthorization({
-          contractAddress: PROXY_TEMPLATE_ADDRESSES['odyssey'],
-          sponsor: true,
-          chainId: 0,
-        });
-
-        const response = await fetch("/api/relay", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            operation: "submit7702Auth",
-            targetAddress: smartWalletAddress,
-            authorizationList: [authorization],
-          }, (_, value) => 
-            typeof value === "bigint" ? value.toString() : value
-          ),
-        });
-
-        if (!response.ok) {
-          throw new Error("Failed to reset delegate");
-        }
-
-        const { hash } = await response.json();
-        updateStep(1, {
-          status: "Waiting for delegate reset transaction...",
-          isComplete: false,
-          txHash: hash,
-        });
-
-        await waitForTransaction(hash, chain);
-        await checkState();
-        updateStep(1, {
-          status: "Successfully reset delegate",
-          isComplete: true,
-          txHash: hash,
-        });
-      }
-
-      else if (!isDelegateDisrupted && isImplementationDisrupted) {
-        addStep({
-          status: "Resetting implementation to correct version...",
-          isComplete: false,
-        });
-
-        const currentImplementation = await getCurrentImplementation(publicClient, smartWalletAddress);
-        const nonce = await getNonceFromTracker(publicClient, smartWalletAddress);
-        const chainId = odysseyTestnet.id;
-
-        const setImplementationHash = createSetImplementationHash(
-          PROXY_TEMPLATE_ADDRESSES['odyssey'],
-          NEW_IMPLEMENTATION_ADDRESS,
-          "0x",
-          nonce,
-          currentImplementation,
-          false,
-          BigInt(chainId)
-        );
-
-        const signature = await signSetImplementation(userWallet, setImplementationHash);
-
-        updateStep(1, {
-          status: "Preparing implementation reset transaction...",
-          isComplete: true,
-        });
-
-        const response = await fetch("/api/relay", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            operation: "setImplementation",
-            targetAddress: smartWalletAddress,
-            signature,
-          }, (_, value) => 
-            typeof value === "bigint" ? value.toString() : value
-          ),
-        });
-
-        if (!response.ok) {
-          throw new Error("Failed to reset implementation");
-        }
-
-        const { hash } = await response.json();
-        updateStep(1, {
-          status: "Waiting for implementation reset transaction...",
-          isComplete: false,
-          txHash: hash,
-        });
-
-        await waitForTransaction(hash, chain);
-        await checkState();
-        updateStep(1, {
-          status: "Successfully reset implementation",
-          isComplete: true,
-          txHash: hash,
-        });
-      }
-
-      else if (isDelegateDisrupted && isImplementationDisrupted) {
-        addStep({
-          status: "Resetting both delegate and implementation...",
-          isComplete: false,
-        });
-
-        const authorization = await userWallet.signAuthorization({
-          contractAddress: PROXY_TEMPLATE_ADDRESSES['odyssey'],
-          sponsor: true,
-          chainId: 0,
-        });
-
-        const currentImplementation = await getCurrentImplementation(publicClient, smartWalletAddress);
-        const nonce = await getNonceFromTracker(publicClient, smartWalletAddress);
-        const chainId = odysseyTestnet.id;
-        
-        const setImplementationHash = createSetImplementationHash(
-          PROXY_TEMPLATE_ADDRESSES['odyssey'],
-          NEW_IMPLEMENTATION_ADDRESS,
-          "0x", // No initialization needed for reset
-          nonce,
-          currentImplementation,
-          false,
-          BigInt(chainId)
-        );
-
-        const signature = await signSetImplementation(userWallet, setImplementationHash);
-
-        const response = await fetch("/api/relay", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            operation: "upgradeEOA",
-            targetAddress: smartWalletAddress,
-            initArgs: "0x",
-            signature,
-            authorizationList: [authorization],
-          }, (_, value) => 
-            typeof value === "bigint" ? value.toString() : value
-          ),
-        });
-
-        if (!response.ok) {
-          throw new Error("Failed to reset delegate and implementation");
-        }
-
-        const { hash } = await response.json();
-        updateStep(1, {
-          status: "Waiting for reset transaction...",
-          isComplete: false,
-          txHash: hash,
-        });
-
-        await waitForTransaction(hash, chain);
-        await checkState();
-        updateStep(1, {
-          status: "Successfully reset delegate and implementation",
-          isComplete: true,
-          txHash: hash,
-        });
-      }
-
-      onRecoveryComplete();
-      setShowRecoveryModal(false);
-      
-      addStep({
-        status: "Account recovered successfully",
-        isComplete: true,
-      });
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
-      addStep({
-        status: "Recovery failed",
-        isComplete: true,
-        error: errorMessage,
-      });
-    } finally {
-      setVerifying(false);
-    }
-  };
 
   return (
     <div className="flex flex-col items-center w-full max-w-5xl mx-auto mt-8">

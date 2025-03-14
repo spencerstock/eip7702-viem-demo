@@ -7,7 +7,7 @@ import { type ExtendedAccount } from "./lib/wallet-utils";
 import { odysseyTestnet } from "./lib/chains";
 import { type P256Credential } from "viem/account-abstraction";
 import { AccountDisruption } from "./components/AccountDisruption";
-import { NEW_IMPLEMENTATION_ADDRESS } from "./lib/contracts";
+import { CBSW_IMPLEMENTATION_ADDRESS } from "./lib/constants";
 import { getExpectedBytecode } from "./lib/contract-utils";
 
 export default function Home() {
@@ -67,7 +67,7 @@ export default function Home() {
     if (slotValue !== null) {
       setCurrentSlotValue(slotValue);
 
-      const newImplementationDisrupted = slotValue.toLowerCase() !== NEW_IMPLEMENTATION_ADDRESS.toLowerCase();
+      const newImplementationDisrupted = slotValue.toLowerCase() !== CBSW_IMPLEMENTATION_ADDRESS.toLowerCase();
       setIsImplementationDisrupted(newImplementationDisrupted);
     }
   };

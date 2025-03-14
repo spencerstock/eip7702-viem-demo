@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { type Address, type Hash } from "viem";
-import { withdrawEntryPointDeposit } from "../../../lib/smart-account";
+import { type Address } from "viem";
+import { withdrawEntryPointDeposit } from "../../../lib/relayer-utils";
 
 export async function POST(request: Request) {
   try {

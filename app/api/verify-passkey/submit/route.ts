@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { type Hash, createPublicClient, createWalletClient, http } from "viem";
+import { type Hash, createWalletClient, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { odysseyTestnet } from "../../../lib/chains";
 import { EntryPointAddress, EntryPointAbi } from "../../../lib/abi/EntryPoint";

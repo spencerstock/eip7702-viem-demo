@@ -15,51 +15,14 @@ import { odysseyTestnet } from "./chains";
 import { 
   IMPLEMENTATION_SET_TYPEHASH, 
   VALIDATOR_ADDRESS,
-} from "./contracts";
+} from "./constants";
 
 // Add a type for our extended account that includes the private key
 export type ExtendedAccount = ReturnType<typeof privateKeyToAccount> & {
   _privateKey: Hex;
 };
 
-export async function getRelayerWalletClient() {
-  return {
-    account: {
-      // Use the public relayer address
-      address: process.env.NEXT_PUBLIC_RELAYER_ADDRESS as `0x${string}`,
-    },
-    async sendTransaction({
-      to,
-      value,
-      authorizationList,
-    }: {
-      to: `0x${string}`;
-      value: bigint;
-      authorizationList: any[];
-    }) {
-      const response = await fetch("/api/relay", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          to,
-          value: value.toString(),
-          authorizationList,
-        }),
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || "Failed to relay transaction");
-      }
-
-      const { hash } = await response.json();
-      return hash as `0x${string}`;
-    },
-  };
-}
-
+// Creates a new wallet client with the given account, which is extended to include the private key
 export function createEOAClient(account: ExtendedAccount) {
   // Create the wallet client with the extended account to get access to private key
   return createWalletClient({
@@ -69,6 +32,7 @@ export function createEOAClient(account: ExtendedAccount) {
   }).extend(eip7702Actions());
 }
 
+// Creates a new extended account with a random private key
 export async function createEOAWallet(): Promise<ExtendedAccount> {
   // Generate a random private key
   const privateKey = `0x${crypto
@@ -84,6 +48,7 @@ export async function createEOAWallet(): Promise<ExtendedAccount> {
   };
 }
 
+// Encodes the calldata for `CoinbaseSmartWallet.initialize`
 export function encodeInitializeArgs(
   owners: (Hex | { publicKey: Hex })[]
 ): Hex {
@@ -118,6 +83,7 @@ export function encodeInitializeArgs(
   });
 }
 
+// Creates the hash to be signed for a call to `EIP7702Proxy.setImplementation`
 export function createSetImplementationHash(
   proxyAddr: Hex,
   newImplementation: Hex,
@@ -162,6 +128,7 @@ export function createSetImplementationHash(
   return keccak256(encodedData);
 }
 
+// Signs a hash using the private key of the given wallet client
 export async function signSetImplementation(
   walletClient: WalletClient,
   hash: Hex
@@ -185,7 +152,5 @@ export async function signSetImplementation(
   const v = signature.recovery + 27;
 
   // Pack the signature
-  const packedSignature = `0x${r}${s}${v.toString(16)}` as Hex;
-
-  return packedSignature;
+  return`0x${r}${s}${v.toString(16)}` as Hex;
 }

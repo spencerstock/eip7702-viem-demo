@@ -1,5 +1,5 @@
 import { getExpectedBytecode } from "../lib/contract-utils";
-import { NEW_IMPLEMENTATION_ADDRESS } from "../lib/contracts";
+import { CBSW_IMPLEMENTATION_ADDRESS } from "../lib/constants";
 
 interface Props {
   currentBytecode: string | null;
@@ -8,7 +8,7 @@ interface Props {
 
 // Helper to check if bytecode is correct (includes magic prefix)
 const isCorrectBytecode = (bytecode: string) => {
-  const expectedBytecode = getExpectedBytecode(false);
+  const expectedBytecode = getExpectedBytecode();
   return bytecode.toLowerCase() === expectedBytecode.toLowerCase();
 };
 
@@ -29,7 +29,7 @@ export function AccountState({ currentBytecode, currentSlotValue }: Props) {
         <p className="text-gray-400">
           Implementation Address: {
             currentSlotValue 
-              ? <span className={currentSlotValue.toLowerCase() !== NEW_IMPLEMENTATION_ADDRESS.toLowerCase() ? "text-red-400" : "text-green-400"}>
+              ? <span className={currentSlotValue.toLowerCase() !== CBSW_IMPLEMENTATION_ADDRESS.toLowerCase() ? "text-red-400" : "text-green-400"}>
                   {currentSlotValue}
                 </span>
               : <span className="text-yellow-400">Not checked yet</span>

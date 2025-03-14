@@ -2,7 +2,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import { createWalletClient, http, type Hex, encodeFunctionData } from "viem";
 import { odysseyTestnet } from "@/app/lib/chains";
 import { eip7702Actions } from "viem/experimental";
-import { NEW_IMPLEMENTATION_ADDRESS, VALIDATOR_ADDRESS } from "../../lib/contracts";
+import { CBSW_IMPLEMENTATION_ADDRESS, VALIDATOR_ADDRESS } from "../../lib/constants";
 
 // This runs on the server, so it's safe to access the private key
 const RELAYER_PRIVATE_KEY = process.env.RELAYER_PRIVATE_KEY as Hex;
@@ -89,6 +89,7 @@ export async function POST(request: Request) {
     const { operation, targetAddress } = body;
 
     switch (operation) {
+      // *************** Fund **************************************** 
       case "fund": {
         const { value } = body;
         const hash = await submitTransaction(
@@ -97,7 +98,8 @@ export async function POST(request: Request) {
         );
         return Response.json({ hash });
       }
-      
+
+      // *************** Submit 7702 Authorization *******************
       case "submit7702Auth": {
         const { authorizationList } = body;
         
@@ -119,6 +121,7 @@ export async function POST(request: Request) {
         return Response.json({ hash });
       }
 
+      // *************** Set Implementation ****************************
       case "setImplementation": {
         const { signature, initArgs = "0x" } = body;
         
@@ -130,7 +133,7 @@ export async function POST(request: Request) {
         });
         
         const data = encodeSetImplementation(
-          NEW_IMPLEMENTATION_ADDRESS,
+          CBSW_IMPLEMENTATION_ADDRESS,
           initArgs,
           signature
         );
@@ -143,7 +146,8 @@ export async function POST(request: Request) {
         
         return Response.json({ hash });
       }
-      
+
+      // *************** Upgrade EOA (Combined Operation) ******************
       case "upgradeEOA": {
         const { initArgs, signature, authorizationList } = body;
         
@@ -159,7 +163,7 @@ export async function POST(request: Request) {
         
         // Combined transaction that includes both the 7702 authorization and setImplementation call
         const data = encodeSetImplementation(
-          NEW_IMPLEMENTATION_ADDRESS,
+          CBSW_IMPLEMENTATION_ADDRESS,
           initArgs,
           signature
         );
@@ -174,7 +178,7 @@ export async function POST(request: Request) {
         console.log("Submitted upgradeEOA transaction:", {
           hash,
           targetAddress,
-          implementation: NEW_IMPLEMENTATION_ADDRESS,
+          implementation: CBSW_IMPLEMENTATION_ADDRESS,
           validator: VALIDATOR_ADDRESS,
         });
         

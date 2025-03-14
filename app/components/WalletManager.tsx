@@ -2,23 +2,22 @@ import { useState, useEffect } from "react";
 import { createPublicClient, http, type Hex } from "viem";
 import {
   createEOAWallet,
-  getRelayerWalletClient,
   createEOAClient,
   encodeInitializeArgs,
   createSetImplementationHash,
   signSetImplementation,
   type ExtendedAccount,
 } from "../lib/wallet-utils";
-import { PROXY_TEMPLATE_ADDRESSES } from "../lib/contracts";
 import { odysseyTestnet } from "../lib/chains";
 import {
   createWebAuthnCredential,
   type P256Credential,
 } from "viem/account-abstraction";
 import {
-  NEW_IMPLEMENTATION_ADDRESS,
+  CBSW_IMPLEMENTATION_ADDRESS,
   ZERO_ADDRESS,
-} from "../lib/contracts";
+  EIP7702PROXY_TEMPLATE_ADDRESS,
+} from "../lib/constants";
 import { getNonceFromTracker, verifyPasskeyOwnership, checkContractState } from "../lib/contract-utils";
 
 interface WalletManagerProps {
@@ -35,18 +34,15 @@ interface WalletManagerProps {
 
 function formatError(error: any): string {
   let errorMessage = "Failed to upgrade wallet: ";
-
   if (error.shortMessage) {
     errorMessage += error.shortMessage;
   } else if (error.message) {
     errorMessage += error.message;
   }
-
   // Check for contract revert reasons
   if (error.data?.message) {
     errorMessage += `\nContract message: ${error.data.message}`;
   }
-
   return errorMessage;
 }
 
@@ -76,6 +72,7 @@ export function WalletManager({
     setStatus("");
   }, [resetKey]);
 
+  // Creates a random new EOA wallet
   const handleCreateEOA = async () => {
     try {
       setLoading(true);
@@ -93,6 +90,7 @@ export function WalletManager({
     }
   };
 
+  // Upgrades the EOA wallet to a CoinbaseSmartWallet and initializes passkey ownership
   const handleUpgradeWallet = async () => {
     if (!account) return;
 
@@ -113,11 +111,7 @@ export function WalletManager({
         transport: http(),
       });
 
-      // Get the proxy address based on network
-      const proxyAddress = PROXY_TEMPLATE_ADDRESSES.odyssey;
-      console.log("Proxy template address:", proxyAddress);
-
-      // Create a new passkey
+        // Create a new passkey
       setStatus("Creating new passkey...");
       const passkey = await createWebAuthnCredential({
         name: "Smart Wallet Owner",
@@ -125,6 +119,8 @@ export function WalletManager({
       onPasskeyStored(passkey);
 
       // Create initialization args with both relayer and passkey as owners
+      // We include the relayer as owner only for the purposes of this demo, which allows the relayer
+      // to retrieve their entrypoint deposit while serving as a lightweight bundler.
       setStatus("Preparing initialization data and signature...");
       const initArgs = encodeInitializeArgs([
         (process.env.NEXT_PUBLIC_RELAYER_ADDRESS as Hex),
@@ -133,9 +129,10 @@ export function WalletManager({
       const nonce = await getNonceFromTracker(publicClient, account.address);
       const chainId = odysseyTestnet.id;
 
+      // Create the setImplementationHash for the upgrade transaction
       const setImplementationHash = createSetImplementationHash(
-        proxyAddress,
-        NEW_IMPLEMENTATION_ADDRESS,
+        EIP7702PROXY_TEMPLATE_ADDRESS,
+        CBSW_IMPLEMENTATION_ADDRESS,
         initArgs,
         nonce,
         ZERO_ADDRESS,
@@ -149,12 +146,12 @@ export function WalletManager({
       // Create the authorization signature for EIP-7702
       setStatus("Creating authorization signature...");
       const authorization = await userWallet.signAuthorization({
-        contractAddress: proxyAddress,
-        sponsor: (process.env.NEXT_PUBLIC_RELAYER_ADDRESS as `0x${string}`),
+        contractAddress: EIP7702PROXY_TEMPLATE_ADDRESS,
+        sponsor: (process.env.NEXT_PUBLIC_RELAYER_ADDRESS as `0x${string}`), // the relayer will submit this signature
       });
 
       // Submit the combined upgrade transaction
-      setStatus("✓ Submitting upgrade transaction...");
+      setStatus("Submitting upgrade transaction...");
       const upgradeResponse = await fetch("/api/relay", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
