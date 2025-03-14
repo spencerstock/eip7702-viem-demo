@@ -1,20 +1,9 @@
 import { useState, useEffect } from "react";
 import { type Address, createPublicClient, http, type Hex, encodeFunctionData } from "viem";
-import { odysseyTestnet } from "../lib/chains";
-import { localAnvil, createEOAClient, type ExtendedAccount, getRelayerWalletClient } from "../lib/wallet-utils";
-import { NEW_IMPLEMENTATION_ADDRESS, PROXY_TEMPLATE_ADDRESSES } from "../lib/contracts";
+import { odysseyTestnet } from "@/app/lib/chains";
+import { localAnvil, createEOAClient, type ExtendedAccount, getRelayerWalletClient, createSetImplementationHash, signSetImplementation } from "@/app/lib/wallet-utils";
+import { NEW_IMPLEMENTATION_ADDRESS, PROXY_TEMPLATE_ADDRESSES, VALIDATOR_ADDRESS, ZERO_ADDRESS, ERC1967_SLOT, MAGIC_PREFIX, FOREIGN_DELEGATE, FOREIGN_IMPLEMENTATION } from "@/app/lib/contracts";
 import { AccountState } from "./AccountState";
-
-const FOREIGN_DELEGATE = "0x5ee57314eFc8D76B9084BC6759A2152084392e18" as const; // old EIP7702Proxy version
-// const FOREIGN_DELEGATE = "0x88da98F3fd0525FFB85D03D29A21E49f5d48491f" as const;
-
-const FOREIGN_IMPLEMENTATION = "0xbAaaB2feecd974717816FA5ac540D96ad12eb342" as const; // payable MockImplementation, no owner check on upgradeToAndCall
-// const FOREIGN_IMPLEMENTATION = "0x3e0BecB45eBf7Bd1e3943b9521264Bc5B0bd8Ca9" as const; // new implementation
-
-const ERC1967_SLOT = "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc" as const;
-
-// EIP-7702 magic prefix
-const MAGIC_PREFIX = "0xef0100" as const;
 
 // Helper to check if bytecode is correct (includes magic prefix)
 const isCorrectBytecode = (bytecode: string) => {
@@ -154,34 +143,6 @@ export function AccountDisruption({
         transport: http(),
       });
 
-      // Check EOA balance and fund if needed
-      const balance = await publicClient.getBalance({ address: account.address });
-      console.log("Current EOA balance:", balance.toString(), "wei");
-      
-      if (balance < BigInt(300000000000000)) { // 0.00012 ETH in wei
-        console.log("Funding EOA with gas money...");
-        const fundResponse = await fetch("/api/relay", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            operation: "fund",
-            targetAddress: account.address,
-            value: "300000000000000",
-          }),
-        });
-        
-        if (!fundResponse.ok) {
-          throw new Error("Failed to fund EOA wallet");
-        }
-        
-        const { hash } = await fundResponse.json();
-        console.log("Funding transaction submitted:", hash);
-        await publicClient.waitForTransactionReceipt({ hash });
-        
-        const newBalance = await publicClient.getBalance({ address: account.address });
-        console.log("New EOA balance:", newBalance.toString(), "wei");
-      }
-
       // Create authorization signature for the smart wallet to change its delegate
       console.log("\n=== Creating re-delegation authorization ===");
       console.log("EOA address:", account.address);
@@ -204,7 +165,7 @@ export function AccountDisruption({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          operation: "delegate",
+          operation: "submit7702Auth",
           targetAddress: account.address,
           authorizationList: [authorization],
         }, (_, value) => 

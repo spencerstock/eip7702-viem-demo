@@ -12,7 +12,7 @@ import { localAnvil, createSetImplementationHash, type ExtendedAccount, createEO
 import { EntryPointAddress, EntryPointAbi } from "../lib/abi/EntryPoint";
 import { serializeBigInts } from "../lib/smart-account";
 import { RecoveryModal } from "./RecoveryModal";
-import { PROXY_TEMPLATE_ADDRESSES, NEW_IMPLEMENTATION_ADDRESS, VALIDATOR_ADDRESS } from "../lib/contracts";
+import { PROXY_TEMPLATE_ADDRESSES, NEW_IMPLEMENTATION_ADDRESS, NONCE_TRACKER_ADDRESS, ERC1967_IMPLEMENTATION_SLOT } from "../lib/contracts";
 import { keccak256, encodeAbiParameters } from "viem";
 import { EIP7702ProxyAddresses } from "../lib/abi/EIP7702Proxy";
 
@@ -114,10 +114,6 @@ function StepDisplay({
 
 const MIN_DEPOSIT = BigInt("100000000000000000"); // 0.1 ETH
 
-// Add NonceTracker address constant
-const NONCE_TRACKER_ADDRESS = "0x1e3C75E11F8c31ffe8BA28A648B1D58566df6d72" as const;
-// Add ERC1967 implementation slot constant
-const ERC1967_IMPLEMENTATION_SLOT = "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc" as const;
 
 export function PasskeyVerification({
   smartWalletAddress,
@@ -500,7 +496,7 @@ export function PasskeyVerification({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            operation: "resetDelegate",
+            operation: "submit7702Auth",
             targetAddress: smartWalletAddress,
             authorizationList: [authorization],
           }, (_, value) => 
@@ -568,7 +564,7 @@ export function PasskeyVerification({
         const chainId = useAnvil ? localAnvil.id : odysseyTestnet.id;
         console.log("Chain ID:", chainId);
         const setImplementationHash = createSetImplementationHash(
-          EIP7702ProxyAddresses[useAnvil ? 'anvil' : 'odyssey'],
+          PROXY_TEMPLATE_ADDRESSES[useAnvil ? 'anvil' : 'odyssey'],
           NEW_IMPLEMENTATION_ADDRESS,
           "0x", // No initialization needed for reset
           nonce,
@@ -585,7 +581,7 @@ export function PasskeyVerification({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            operation: "resetImplementation",
+            operation: "setImplementation",
             targetAddress: smartWalletAddress,
             signature,
           }, (_, value) => 
@@ -657,7 +653,7 @@ export function PasskeyVerification({
         // Create and sign the setImplementation hash
         const chainId = useAnvil ? localAnvil.id : odysseyTestnet.id;
         const setImplementationHash = createSetImplementationHash(
-          EIP7702ProxyAddresses[useAnvil ? 'anvil' : 'odyssey'],
+          PROXY_TEMPLATE_ADDRESSES[useAnvil ? 'anvil' : 'odyssey'],
           NEW_IMPLEMENTATION_ADDRESS,
           "0x", // No initialization needed for reset
           nonce,

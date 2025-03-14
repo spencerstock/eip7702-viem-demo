@@ -36,6 +36,55 @@ const relayerWallet = createWalletClient({
   transport: http(),
 }).extend(eip7702Actions());
 
+// Helper to encode setImplementation call
+const encodeSetImplementation = (
+  newImplementation: Hex,
+  callData: Hex,
+  signature: Hex,
+  allowCrossChainReplay = false
+) => {
+  return encodeFunctionData({
+    abi: [{
+      type: "function",
+      name: "setImplementation",
+      inputs: [
+        { name: "newImplementation", type: "address" },
+        { name: "callData", type: "bytes" },
+        { name: "validator", type: "address" },
+        { name: "signature", type: "bytes" },
+        { name: "allowCrossChainReplay", type: "bool" }
+      ],
+      outputs: [],
+      stateMutability: "payable"
+    }],
+    functionName: "setImplementation",
+    args: [
+      newImplementation,
+      callData,
+      VALIDATOR_ADDRESS,
+      signature,
+      allowCrossChainReplay
+    ]
+  });
+};
+
+// Helper to submit transaction with optional authorization
+const submitTransaction = async (
+  to: Hex,
+  value: bigint = BigInt(0),
+  data?: Hex,
+  authorizationList?: any[]
+) => {
+  const tx = {
+    to,
+    value,
+    ...(data && { data }),
+    ...(authorizationList && { authorizationList })
+  };
+  
+  return await relayerWallet.sendTransaction(tx);
+};
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -44,17 +93,63 @@ export async function POST(request: Request) {
     switch (operation) {
       case "fund": {
         const { value } = body;
-        const hash = await relayerWallet.sendTransaction({
-          to: targetAddress,
-          value: BigInt(value),
+        const hash = await submitTransaction(
+          targetAddress,
+          BigInt(value)
+        );
+        return Response.json({ hash });
+      }
+      
+      case "submit7702Auth": {
+        const { authorizationList } = body;
+        
+        console.log("\n=== Submitting 7702 Authorization ===");
+        console.log("Received auth request:", {
+          targetAddress,
+          hasAuthList: !!authorizationList,
+          authListLength: authorizationList?.length,
+          authDetails: authorizationList?.[0],
         });
+        
+        const hash = await submitTransaction(
+          targetAddress,
+          BigInt(0),
+          undefined,
+          authorizationList
+        );
+        
+        return Response.json({ hash });
+      }
+
+      case "setImplementation": {
+        const { signature, initArgs = "0x" } = body;
+        
+        console.log("\n=== Setting Implementation ===");
+        console.log("Received setImplementation request:", {
+          targetAddress,
+          hasSignature: !!signature,
+          hasInitArgs: !!initArgs,
+        });
+        
+        const data = encodeSetImplementation(
+          NEW_IMPLEMENTATION_ADDRESS,
+          initArgs,
+          signature
+        );
+        
+        const hash = await submitTransaction(
+          targetAddress,
+          BigInt(0),
+          data
+        );
+        
         return Response.json({ hash });
       }
       
       case "upgradeEOA": {
         const { initArgs, signature, authorizationList } = body;
         
-        console.log("\n=== Recovery Case: Both Delegate and Implementation ===");
+        console.log("\n=== Upgrading EOA (Combined Operation) ===");
         console.log("Received upgradeEOA request:", {
           targetAddress,
           hasAuthList: !!authorizationList,
@@ -65,33 +160,18 @@ export async function POST(request: Request) {
         });
         
         // Combined transaction that includes both the 7702 authorization and setImplementation call
-        const hash = await relayerWallet.sendTransaction({
-          to: targetAddress,
-          data: encodeFunctionData({
-            abi: [{
-              type: "function",
-              name: "setImplementation",
-              inputs: [
-                { name: "newImplementation", type: "address" },
-                { name: "callData", type: "bytes" },
-                { name: "validator", type: "address" },
-                { name: "signature", type: "bytes" },
-                { name: "allowCrossChainReplay", type: "bool" }
-              ],
-              outputs: [],
-              stateMutability: "payable"
-            }],
-            functionName: "setImplementation",
-            args: [
-              NEW_IMPLEMENTATION_ADDRESS,
-              initArgs,
-              VALIDATOR_ADDRESS,
-              signature,
-              false
-            ]
-          }),
-          authorizationList,
-        });
+        const data = encodeSetImplementation(
+          NEW_IMPLEMENTATION_ADDRESS,
+          initArgs,
+          signature
+        );
+        
+        const hash = await submitTransaction(
+          targetAddress,
+          BigInt(0),
+          data,
+          authorizationList
+        );
         
         console.log("Submitted upgradeEOA transaction:", {
           hash,
@@ -105,109 +185,27 @@ export async function POST(request: Request) {
 
       case "execute": {
         const { args } = body;
-        const hash = await relayerWallet.writeContract({
-          address: targetAddress,
-          abi: [
-            {
-              type: "function",
-              name: "execute",
-              inputs: [
-                { name: "target", type: "address" },
-                { name: "value", type: "uint256" },
-                { name: "data", type: "bytes" },
-              ],
-              outputs: [],
-              stateMutability: "payable",
-            },
-          ],
+        const data = encodeFunctionData({
+          abi: [{
+            type: "function",
+            name: "execute",
+            inputs: [
+              { name: "target", type: "address" },
+              { name: "value", type: "uint256" },
+              { name: "data", type: "bytes" },
+            ],
+            outputs: [],
+            stateMutability: "payable",
+          }],
           functionName: "execute",
           args: [args.target, BigInt(args.value), args.data],
         });
-        return Response.json({ hash });
-      }
-
-      case "delegate": {
-        const { authorizationList } = body;
-        console.log("\n=== Recovery Case: Delegate Only ===");
-        console.log("Received delegate request:", {
+        
+        const hash = await submitTransaction(
           targetAddress,
-          hasAuthList: !!authorizationList,
-          authListLength: authorizationList?.length,
-          authDetails: authorizationList?.[0],
-        });
-
-        // Submit the authorization to delegate to a foreign address
-        const hash = await relayerWallet.sendTransaction({
-          to: targetAddress,
-          value: BigInt(0),
-          authorizationList,
-        });
-        
-        return Response.json({ hash });
-      }
-
-      case "resetDelegate": {
-        const { authorizationList } = body;
-        
-        console.log("\n=== Recovery Case: Delegate Only (Reset) ===");
-        console.log("Received resetDelegate request:", {
-          targetAddress,
-          hasAuthList: !!authorizationList,
-          authListLength: authorizationList?.length,
-          authDetails: authorizationList?.[0],
-        });
-
-        // Submit the authorization to reset delegate back to relayer
-        const hash = await relayerWallet.sendTransaction({
-          to: targetAddress,
-          value: BigInt(0),
-          authorizationList,
-        });
-        
-        return Response.json({ hash });
-      }
-
-      case "resetImplementation": {
-        const { signature, authorizationList } = body;
-        
-        console.log("\n=== Recovery Case: Implementation Only ===");
-        console.log("Received resetImplementation request:", {
-          targetAddress,
-          hasSignature: !!signature,
-          hasAuthList: !!authorizationList,
-          authListLength: authorizationList?.length,
-          authDetails: authorizationList?.[0],
-        });
-        
-        // Call setImplementation to reset to the correct implementation
-        const hash = await relayerWallet.sendTransaction({
-          to: targetAddress,
-          value: BigInt(0),
-          data: encodeFunctionData({
-            abi: [{
-              type: "function",
-              name: "setImplementation",
-              inputs: [
-                { name: "newImplementation", type: "address" },
-                { name: "callData", type: "bytes" },
-                { name: "validator", type: "address" },
-                { name: "signature", type: "bytes" },
-                { name: "allowCrossChainReplay", type: "bool" }
-              ],
-              outputs: [],
-              stateMutability: "payable"
-            }],
-            functionName: "setImplementation",
-            args: [
-              NEW_IMPLEMENTATION_ADDRESS,
-              "0x", // No initialization needed for reset
-              VALIDATOR_ADDRESS,
-              signature,
-              false
-            ]
-          }),
-          authorizationList,
-        });
+          BigInt(0),
+          data
+        );
         
         return Response.json({ hash });
       }
