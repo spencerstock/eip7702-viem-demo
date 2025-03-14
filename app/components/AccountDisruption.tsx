@@ -16,8 +16,6 @@ interface Props {
   smartWalletAddress: Address;
   useAnvil: boolean;
   onDisruptionComplete: (type: 'delegate' | 'implementation') => void;
-  isDelegateDisrupted: boolean;
-  isImplementationDisrupted: boolean;
   currentBytecode: string | null;
   currentSlotValue: string | null;
   onStateChange: (bytecode: string | null, slotValue: string | null) => void;
@@ -28,8 +26,6 @@ export function AccountDisruption({
   smartWalletAddress,
   useAnvil,
   onDisruptionComplete,
-  isDelegateDisrupted,
-  isImplementationDisrupted,
   currentBytecode,
   currentSlotValue,
   onStateChange,
@@ -309,7 +305,7 @@ export function AccountDisruption({
 
   return (
     <div className="flex flex-col items-center gap-4 mt-8 p-6 bg-gray-800 rounded-lg w-full max-w-5xl mx-auto">
-      <h3 className="text-xl font-semibold text-red-400 mb-4">⚠️ Account Disruption Tools</h3>
+      <h3 className="text-xl font-semibold text-red-400 mb-4">🛠️ Account Disruption Tools</h3>
       
       <div className="flex flex-col items-center gap-4 w-full">
         <div className="flex gap-4">

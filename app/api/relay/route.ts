@@ -1,9 +1,7 @@
-import { NextResponse } from "next/server";
 import { privateKeyToAccount } from "viem/accounts";
 import { createWalletClient, http, type Hex, encodeFunctionData } from "viem";
 import { odysseyTestnet } from "@/app/lib/chains";
 import { eip7702Actions } from "viem/experimental";
-import { localAnvil } from "../../lib/wallet-utils";
 import { NEW_IMPLEMENTATION_ADDRESS, VALIDATOR_ADDRESS } from "../../lib/contracts";
 
 // This runs on the server, so it's safe to access the private key
@@ -179,33 +177,6 @@ export async function POST(request: Request) {
           implementation: NEW_IMPLEMENTATION_ADDRESS,
           validator: VALIDATOR_ADDRESS,
         });
-        
-        return Response.json({ hash });
-      }
-
-      case "execute": {
-        const { args } = body;
-        const data = encodeFunctionData({
-          abi: [{
-            type: "function",
-            name: "execute",
-            inputs: [
-              { name: "target", type: "address" },
-              { name: "value", type: "uint256" },
-              { name: "data", type: "bytes" },
-            ],
-            outputs: [],
-            stateMutability: "payable",
-          }],
-          functionName: "execute",
-          args: [args.target, BigInt(args.value), args.data],
-        });
-        
-        const hash = await submitTransaction(
-          targetAddress,
-          BigInt(0),
-          data
-        );
         
         return Response.json({ hash });
       }

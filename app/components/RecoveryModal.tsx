@@ -1,6 +1,3 @@
-import { type Address } from "viem";
-import { type ExtendedAccount } from "../lib/wallet-utils";
-
 interface Props {
   isOpen: boolean;
   onClose: () => void;

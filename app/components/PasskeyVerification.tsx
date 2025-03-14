@@ -5,7 +5,6 @@ import {
   toWebAuthnAccount,
   toCoinbaseSmartAccount,
   type UserOperation,
-  type WebAuthnAccount,
 } from "viem/account-abstraction";
 import { odysseyTestnet } from "../lib/chains";
 import { localAnvil, createSetImplementationHash, type ExtendedAccount, createEOAClient, signSetImplementation } from "../lib/wallet-utils";
@@ -13,8 +12,6 @@ import { EntryPointAddress, EntryPointAbi } from "../lib/abi/EntryPoint";
 import { serializeBigInts } from "../lib/smart-account";
 import { RecoveryModal } from "./RecoveryModal";
 import { PROXY_TEMPLATE_ADDRESSES, NEW_IMPLEMENTATION_ADDRESS, NONCE_TRACKER_ADDRESS, ERC1967_IMPLEMENTATION_SLOT } from "../lib/contracts";
-import { keccak256, encodeAbiParameters } from "viem";
-import { EIP7702ProxyAddresses } from "../lib/abi/EIP7702Proxy";
 
 type VerificationStep = {
   status: string;
@@ -455,6 +452,7 @@ export function PasskeyVerification({
     try {
       setVerifying(true);
       setSteps([]);
+      setIsVerified(false);
       addStep({
         status: "Starting account recovery...",
         isComplete: false,
@@ -472,18 +470,20 @@ export function PasskeyVerification({
         transport: http(),
       });
 
+      // Mark initial step as complete
+      updateStep(0, {
+        status: "Account recovery initialized",
+        isComplete: true,
+      });
+
       // Case 1: Only delegate is disrupted
       if (isDelegateDisrupted && !isImplementationDisrupted) {
         addStep({
-          status: "Resetting delegate to original proxy...",
+          status: "Resetting delegate...",
           isComplete: false,
         });
 
-        // Create authorization signature for the smart wallet to change its delegate back
-        console.log("\n=== Creating re-delegation authorization ===");
-        console.log("Smart wallet address:", smartWalletAddress);
-        console.log("Target delegate:", PROXY_TEMPLATE_ADDRESSES[useAnvil ? 'anvil' : 'odyssey']);
-
+        // Create authorization for the correct proxy template
         const authorization = await userWallet.signAuthorization({
           contractAddress: PROXY_TEMPLATE_ADDRESSES[useAnvil ? 'anvil' : 'odyssey'],
           sponsor: true,
@@ -491,7 +491,6 @@ export function PasskeyVerification({
         });
 
         // Submit via relay endpoint
-        console.log("Submitting via relay endpoint...");
         const response = await fetch("/api/relay", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -545,6 +544,11 @@ export function PasskeyVerification({
         const currentImplementation = `0x${implementationSlotData.slice(-40)}` as Address;
         console.log("Current implementation:", currentImplementation);
 
+        updateStep(1, {
+          status: "Reading current implementation state...",
+          isComplete: true,
+        });
+
         // Get the current nonce from NonceTracker
         const nonce = await publicClient.readContract({
           address: NONCE_TRACKER_ADDRESS,
@@ -575,6 +579,11 @@ export function PasskeyVerification({
 
         // Sign the hash using the EOA
         const signature = await signSetImplementation(userWallet, setImplementationHash);
+
+        updateStep(1, {
+          status: "Preparing implementation reset transaction...",
+          isComplete: true,
+        });
 
         // Submit via relay endpoint
         const response = await fetch("/api/relay", {

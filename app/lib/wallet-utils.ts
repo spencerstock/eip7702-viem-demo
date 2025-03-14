@@ -12,7 +12,6 @@ import { anvil } from "viem/chains";
 import { eip7702Actions } from "viem/experimental";
 import { secp256k1 } from "@noble/curves/secp256k1";
 import { hexToBytes } from "@noble/curves/abstract/utils";
-import { keccak256 as keccak256Crypto } from "ethereum-cryptography/keccak";
 import { odysseyTestnet } from "./chains";
 import { 
   IMPLEMENTATION_SET_TYPEHASH, 

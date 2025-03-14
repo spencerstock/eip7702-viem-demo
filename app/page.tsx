@@ -3,11 +3,10 @@
 import { useState, useEffect } from "react";
 import { WalletManager } from "./components/WalletManager";
 import { PasskeyVerification } from "./components/PasskeyVerification";
-import { type ExtendedAccount, createEOAClient } from "./lib/wallet-utils";
+import { type ExtendedAccount } from "./lib/wallet-utils";
 import { odysseyTestnet } from "./lib/chains";
 import { type P256Credential } from "viem/account-abstraction";
 import { AccountDisruption } from "./components/AccountDisruption";
-import { AccountState } from "./components/AccountState";
 import { PROXY_TEMPLATE_ADDRESSES, NEW_IMPLEMENTATION_ADDRESS } from "./lib/contracts";
 import { privateKeyToAccount } from "viem/accounts";
 
@@ -227,8 +226,6 @@ export default function Home() {
           smartWalletAddress={walletAddress as `0x${string}`}
           useAnvil={false}
           onDisruptionComplete={handleDisruptionComplete}
-          isDelegateDisrupted={isDelegateDisrupted}
-          isImplementationDisrupted={isImplementationDisrupted}
           currentBytecode={currentBytecode}
           currentSlotValue={currentSlotValue}
           onStateChange={handleStateChange}

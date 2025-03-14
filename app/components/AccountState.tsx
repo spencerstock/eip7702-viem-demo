@@ -1,4 +1,3 @@
-import { type Address } from "viem";
 import { PROXY_TEMPLATE_ADDRESSES, NEW_IMPLEMENTATION_ADDRESS } from "../lib/contracts";
 
 interface Props {
