@@ -22,7 +22,6 @@ export async function getNonceFromTracker(
     args: [account],
   });
 
-  console.log("Current nonce from NonceTracker:", nonce.toString());
   return nonce;
 }
 
@@ -38,12 +37,7 @@ export async function getCurrentImplementation(
   if (!implementationSlotData) {
     throw new Error("Failed to read implementation slot");
   }
-  
-  // Convert the storage data to an address (take last 20 bytes)
-  const implementationAddress = `0x${implementationSlotData.slice(-40)}` as Address;
-  console.log("Current implementation:", implementationAddress);
-  
-  return implementationAddress;
+  return `0x${implementationSlotData.slice(-40)}` as Address;
 }
 
 export type ContractState = {
@@ -72,15 +66,6 @@ export async function checkContractState(
   // Check if implementation is disrupted
   const isImplementationDisrupted = implementation.toLowerCase() !== NEW_IMPLEMENTATION_ADDRESS.toLowerCase();
 
-  console.log("\n=== Contract State Check ===");
-  console.log("Address:", address);
-  console.log("Current bytecode:", currentBytecode);
-  console.log("Expected bytecode:", expectedBytecode);
-  console.log("Current implementation:", implementation);
-  console.log("Expected implementation:", NEW_IMPLEMENTATION_ADDRESS);
-  console.log("Delegate disrupted:", isDelegateDisrupted);
-  console.log("Implementation disrupted:", isImplementationDisrupted);
-
   return {
     bytecode: bytecode || "0x",
     implementation,
@@ -94,7 +79,6 @@ export async function verifyPasskeyOwnership(
   walletAddress: Address,
   passkey: P256Credential
 ): Promise<boolean> {
-  console.log("Verifying passkey ownership...");
   const isOwner = await publicClient.readContract({
     address: walletAddress,
     abi: [{
@@ -114,7 +98,6 @@ export async function verifyPasskeyOwnership(
     ],
   });
 
-  console.log("Passkey ownership verified:", isOwner);
   return isOwner;
 }
 
@@ -138,11 +121,6 @@ export async function checkAccountBalances(
       args: [address],
     }) as Promise<bigint>
   ]);
-
-  console.log("\n=== Account Balance Check ===");
-  console.log("Account balance:", accountBalance.toString(), "wei");
-  console.log("EntryPoint deposit:", entryPointDeposit.toString(), "wei");
-  console.log("Minimum required deposit:", MIN_DEPOSIT.toString(), "wei");
 
   return {
     accountBalance,
