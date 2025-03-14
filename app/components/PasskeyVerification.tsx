@@ -11,7 +11,8 @@ import { localAnvil, createSetImplementationHash, type ExtendedAccount, createEO
 import { EntryPointAddress, EntryPointAbi } from "../lib/abi/EntryPoint";
 import { serializeBigInts } from "../lib/smart-account";
 import { RecoveryModal } from "./RecoveryModal";
-import { PROXY_TEMPLATE_ADDRESSES, NEW_IMPLEMENTATION_ADDRESS, NONCE_TRACKER_ADDRESS, ERC1967_IMPLEMENTATION_SLOT } from "../lib/contracts";
+import { PROXY_TEMPLATE_ADDRESSES, NEW_IMPLEMENTATION_ADDRESS, ERC1967_IMPLEMENTATION_SLOT } from "../lib/contracts";
+import { getNonceFromTracker } from "../lib/contract-utils";
 
 type VerificationStep = {
   status: string;
@@ -549,20 +550,7 @@ export function PasskeyVerification({
           isComplete: true,
         });
 
-        // Get the current nonce from NonceTracker
-        const nonce = await publicClient.readContract({
-          address: NONCE_TRACKER_ADDRESS,
-          abi: [{
-            type: "function",
-            name: "nonces",
-            inputs: [{ name: "account", type: "address" }],
-            outputs: [{ type: "uint256" }],
-            stateMutability: "view"
-          }],
-          functionName: "nonces",
-          args: [smartWalletAddress],
-        });
-        console.log("Current nonce from NonceTracker:", nonce.toString());
+        const nonce = await getNonceFromTracker(publicClient, smartWalletAddress);
 
         // Create the setImplementation hash
         const chainId = useAnvil ? localAnvil.id : odysseyTestnet.id;
@@ -644,20 +632,8 @@ export function PasskeyVerification({
         
         // Convert the storage data to an address (take last 20 bytes)
         const currentImplementation = `0x${implementationSlotData.slice(-40)}` as Address;
-        // Get the current nonce from NonceTracker
-        const nonce = await publicClient.readContract({
-          address: NONCE_TRACKER_ADDRESS,
-          abi: [{
-            type: "function",
-            name: "nonces",
-            inputs: [{ name: "account", type: "address" }],
-            outputs: [{ type: "uint256" }],
-            stateMutability: "view"
-          }],
-          functionName: "nonces",
-          args: [smartWalletAddress],
-        });
-        console.log("Current nonce from NonceTracker:", nonce.toString());
+        
+        const nonce = await getNonceFromTracker(publicClient, smartWalletAddress);
 
         // Create and sign the setImplementation hash
         const chainId = useAnvil ? localAnvil.id : odysseyTestnet.id;

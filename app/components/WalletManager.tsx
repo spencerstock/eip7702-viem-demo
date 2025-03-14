@@ -20,6 +20,7 @@ import {
   NEW_IMPLEMENTATION_ADDRESS,
   ZERO_ADDRESS,
 } from "../lib/contracts";
+import { getNonceFromTracker } from "../lib/contract-utils";
 
 interface WalletManagerProps {
   useAnvil: boolean;
@@ -140,13 +141,15 @@ export function WalletManager({
         passkey,
       ]);
 
+      const nonce = await getNonceFromTracker(publicClient, account.address);
+
       // Create the setImplementation hash
       const chainId = useAnvil ? localAnvil.id : odysseyTestnet.id;
       const setImplementationHash = createSetImplementationHash(
         proxyAddress,
         NEW_IMPLEMENTATION_ADDRESS,
         initArgs,
-        BigInt(0), // nonce
+        nonce,
         ZERO_ADDRESS, // currentImplementation
         false, // allowCrossChainReplay
         BigInt(chainId)
