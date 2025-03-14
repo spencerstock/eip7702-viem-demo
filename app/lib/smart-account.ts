@@ -10,10 +10,8 @@ import {
 import { privateKeyToAccount } from "viem/accounts";
 import {
   toCoinbaseSmartAccount,
-  createBundlerClient,
 } from "viem/account-abstraction";
 import { odysseyTestnet } from "./chains";
-import { localAnvil } from "./wallet-utils";
 import { EntryPointAddress, EntryPointAbi } from "./abi/EntryPoint";
 import type { UserOperation } from "viem/account-abstraction";
 
@@ -22,14 +20,13 @@ type StatusCallback = (status: string) => void;
 
 export async function getSmartAccountClient(
   smartWalletAddress: `0x${string}`,
-  useAnvil: boolean
 ) {
   if (!process.env.RELAYER_PRIVATE_KEY) {
     throw new Error("RELAYER_PRIVATE_KEY environment variable is required");
   }
 
   const publicClient = createPublicClient({
-    chain: useAnvil ? localAnvil : odysseyTestnet,
+    chain: odysseyTestnet,
     transport: http(),
   });
 
@@ -105,12 +102,10 @@ export async function createAndSignUserOp({
 export async function ensureEntryPointDeposit({
   smartWalletAddress,
   amount,
-  useAnvil,
   onStatus,
 }: {
   smartWalletAddress: Address;
   amount: bigint;
-  useAnvil: boolean;
   onStatus?: StatusCallback;
 }) {
   if (!process.env.RELAYER_PRIVATE_KEY) {
@@ -118,7 +113,7 @@ export async function ensureEntryPointDeposit({
   }
 
   const publicClient = createPublicClient({
-    chain: useAnvil ? localAnvil : odysseyTestnet,
+    chain: odysseyTestnet,
     transport: http(),
   });
 
@@ -151,7 +146,7 @@ export async function ensureEntryPointDeposit({
   );
   const walletClient = createWalletClient({
     account: relayer,
-    chain: useAnvil ? localAnvil : odysseyTestnet,
+    chain: odysseyTestnet,
     transport: http(),
   });
 
@@ -173,11 +168,9 @@ export async function ensureEntryPointDeposit({
 
 export async function submitUserOp({
   userOp,
-  useAnvil,
   onStatus,
 }: {
   userOp: UserOperation;
-  useAnvil: boolean;
   onStatus?: StatusCallback;
 }) {
   if (!process.env.NEXT_PUBLIC_RELAYER_ADDRESS) {
@@ -213,7 +206,7 @@ export async function submitUserOp({
 
   // Create clients
   const publicClient = createPublicClient({
-    chain: useAnvil ? localAnvil : odysseyTestnet,
+    chain: odysseyTestnet,
     transport: http(),
   });
 
@@ -222,7 +215,7 @@ export async function submitUserOp({
   );
   const walletClient = createWalletClient({
     account: relayer,
-    chain: useAnvil ? localAnvil : odysseyTestnet,
+    chain: odysseyTestnet,
     transport: http(),
   });
 
@@ -271,12 +264,10 @@ export async function submitUserOp({
 export async function withdrawEntryPointDeposit({
   smartWalletAddress,
   withdrawAddress,
-  useAnvil,
   onStatus,
 }: {
   smartWalletAddress: Address;
   withdrawAddress: Address;
-  useAnvil: boolean;
   onStatus?: StatusCallback;
 }) {
   if (!process.env.RELAYER_PRIVATE_KEY) {
@@ -284,7 +275,7 @@ export async function withdrawEntryPointDeposit({
   }
 
   const publicClient = createPublicClient({
-    chain: useAnvil ? localAnvil : odysseyTestnet,
+    chain: odysseyTestnet,
     transport: http(),
   });
 
@@ -366,7 +357,7 @@ export async function withdrawEntryPointDeposit({
 
     const walletClient = createWalletClient({
       account: relayer,
-      chain: useAnvil ? localAnvil : odysseyTestnet,
+      chain: odysseyTestnet,
       transport: http(),
     });
 

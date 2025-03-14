@@ -5,7 +5,6 @@ A simple demo application showcasing EIP-7702 wallet creation and upgrades using
 ## Prerequisites
 
 - Node.js and npm installed
-- [Foundry](https://book.getfoundry.sh/getting-started/installation) installed for Anvil testing
 
 ## Testing with Odyssey Testnet
 
@@ -41,7 +40,7 @@ NEXT_PUBLIC_RELAYER_ADDRESS=your_public_address_here
 npm run dev
 ```
 
-## Usage
+## Usage TODO update this when complete with info about account disruption
 
 1. Click "Create new EOA Wallet" to generate a new wallet
 2. Click "Upgrade EOA to Smart Wallet" to:
@@ -58,75 +57,8 @@ npm run dev
 - RPC URL: https://odyssey.ithaca.xyz
 - Chain ID: 911867
 - Block Explorer: https://odyssey-explorer.ithaca.xyz
-- EIP-7702 Proxy Template: 0x5ee57314eFc8D76B9084BC6759A2152084392e18
+- TODO list contracts and addresses
 
-## Testing with Anvil (Local Development)
-
-> ℹ️ Testing with Anvil requires a locally deployed version of the EntryPoint contract and is not immediately working with the below instructions
-
-### 1. Network Setup
-
-First, you'll need to deploy the necessary contracts to your local Anvil network:
-
-1. Clone the EIP-7702 proxy contracts:
-
-```bash
-git clone https://github.com/amiecorso/eip7702-proxy-sandbox
-cd eip7702-proxy-sandbox
-```
-
-2. Compile the contracts:
-
-```bash
-forge build
-```
-
-3. Start Anvil with EIP-7702 support:
-
-```bash
-anvil --hardfork prague
-```
-
-4. Deploy the proxy template and implementation contracts:
-
-```bash
-forge script script/UpgradeEOA.s.sol --rpc-url http://localhost:8545 --broadcast --ffi
-```
-
-### 2. Demo Setup
-
-1. Clone this repository:
-
-```bash
-git clone <your-repo-url>
-cd <your-repo-name>
-```
-
-2. Install dependencies:
-
-```bash
-npm install
-```
-
-3. Create a `.env` file:
-
-```bash
-cp .env.example .env
-```
-
-4. Start the development server:
-
-```bash
-npm run dev
-```
-
-The demo will use Anvil's pre-funded accounts for testing, so no additional configuration is needed.
-
-### Local Anvil
-
-- RPC URL: http://localhost:8545
-- Chain ID: 31337
-- Proxy Template: 0x2d95f129bCEbD5cF7f395c7B34106ac1DCfb0CA9
 
 ## Project Structure
 

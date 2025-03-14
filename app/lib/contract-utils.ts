@@ -47,10 +47,13 @@ export type ContractState = {
   isImplementationDisrupted: boolean;
 };
 
+export function getExpectedBytecode() {
+  return `${MAGIC_PREFIX}${PROXY_TEMPLATE_ADDRESSES.odyssey.slice(2).toLowerCase()}`.toLowerCase();
+}
+
 export async function checkContractState(
   publicClient: PublicClient,
-  address: Address,
-  useAnvil = false
+  address: Address
 ): Promise<ContractState> {
   // Get both states in parallel
   const [bytecode, implementation] = await Promise.all([
@@ -59,7 +62,7 @@ export async function checkContractState(
   ]);
 
   // Check if delegate is disrupted by comparing bytecode with expected format
-  const expectedBytecode = `${MAGIC_PREFIX}${PROXY_TEMPLATE_ADDRESSES[useAnvil ? 'anvil' : 'odyssey'].slice(2).toLowerCase()}`.toLowerCase();
+  const expectedBytecode = getExpectedBytecode();
   const currentBytecode = (bytecode || "0x").toLowerCase();
   const isDelegateDisrupted = currentBytecode !== "0x" && currentBytecode !== expectedBytecode;
 

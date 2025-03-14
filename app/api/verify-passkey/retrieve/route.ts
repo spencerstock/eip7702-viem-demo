@@ -4,12 +4,11 @@ import { withdrawEntryPointDeposit } from "../../../lib/smart-account";
 
 export async function POST(request: Request) {
   try {
-    const { smartWalletAddress, useAnvil } = await request.json();
+    const { smartWalletAddress } = await request.json();
 
     const result = await withdrawEntryPointDeposit({
       smartWalletAddress: smartWalletAddress as Address,
       withdrawAddress: process.env.NEXT_PUBLIC_RELAYER_ADDRESS as Address,
-      useAnvil,
       onStatus: (status) => console.log("Withdraw status:", status),
     });
 

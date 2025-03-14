@@ -1,21 +1,20 @@
 import { useState, useEffect } from "react";
 import { type Address, createPublicClient, http, encodeFunctionData } from "viem";
 import { odysseyTestnet } from "@/app/lib/chains";
-import { localAnvil, createEOAClient, type ExtendedAccount, getRelayerWalletClient } from "@/app/lib/wallet-utils";
-import { NEW_IMPLEMENTATION_ADDRESS, PROXY_TEMPLATE_ADDRESSES, MAGIC_PREFIX, FOREIGN_DELEGATE, FOREIGN_IMPLEMENTATION } from "@/app/lib/contracts";
+import { createEOAClient, type ExtendedAccount, getRelayerWalletClient } from "@/app/lib/wallet-utils";
+import { NEW_IMPLEMENTATION_ADDRESS, FOREIGN_DELEGATE, FOREIGN_IMPLEMENTATION } from "@/app/lib/contracts";
 import { AccountState } from "./AccountState";
-import { checkContractState, getCurrentImplementation } from "@/app/lib/contract-utils";
+import { checkContractState, getCurrentImplementation, getExpectedBytecode } from "@/app/lib/contract-utils";
 
-// Helper to check if bytecode is correct (includes magic prefix)
+// Helper to check if bytecode is correct
 const isCorrectBytecode = (bytecode: string) => {
-  const expectedBytecode = `${MAGIC_PREFIX}${PROXY_TEMPLATE_ADDRESSES.odyssey.slice(2).toLowerCase()}`;
+  const expectedBytecode = getExpectedBytecode();
   return bytecode.toLowerCase() === expectedBytecode.toLowerCase();
 };
 
 interface Props {
   account: ExtendedAccount;
   smartWalletAddress: Address;
-  useAnvil: boolean;
   onDisruptionComplete: (type: 'delegate' | 'implementation') => void;
   currentBytecode: string | null;
   currentSlotValue: string | null;
@@ -25,7 +24,6 @@ interface Props {
 export function AccountDisruption({
   account,
   smartWalletAddress,
-  useAnvil,
   onDisruptionComplete,
   currentBytecode,
   currentSlotValue,
@@ -38,11 +36,11 @@ export function AccountDisruption({
   useEffect(() => {
     const checkDelegateState = async () => {
       const publicClient = createPublicClient({
-        chain: useAnvil ? localAnvil : odysseyTestnet,
+        chain: odysseyTestnet,
         transport: http(),
       });
 
-      const state = await checkContractState(publicClient, account.address, useAnvil);
+      const state = await checkContractState(publicClient, account.address);
       onStateChange(state.bytecode, currentSlotValue); 
     };
 
@@ -52,7 +50,7 @@ export function AccountDisruption({
   useEffect(() => {
     const checkImplementationState = async () => {
       const publicClient = createPublicClient({
-        chain: useAnvil ? localAnvil : odysseyTestnet,
+        chain: odysseyTestnet,
         transport: http(),
       });
 
@@ -66,11 +64,11 @@ export function AccountDisruption({
   // Function to check both delegate and implementation states after disruption
   const checkState = async () => {
     const publicClient = createPublicClient({
-      chain: useAnvil ? localAnvil : odysseyTestnet,
+      chain: odysseyTestnet,
       transport: http(),
     });
 
-    const state = await checkContractState(publicClient, account.address, useAnvil);
+    const state = await checkContractState(publicClient, account.address);
     onStateChange(state.bytecode, state.implementation);
 
     return state;
@@ -82,18 +80,16 @@ export function AccountDisruption({
       setError(null);
 
       // Create user's wallet client for signing
-      const userWallet = createEOAClient(account, useAnvil);
+      const userWallet = createEOAClient(account);
       const initialState = await checkState();
 
       // Get the relayer address
-      const relayerAddress = useAnvil
-        ? (await getRelayerWalletClient(true)).account.address
-        : (process.env.NEXT_PUBLIC_RELAYER_ADDRESS as `0x${string}`);
+      const relayerAddress = (process.env.NEXT_PUBLIC_RELAYER_ADDRESS as `0x${string}`);
       console.log("Using relayer address:", relayerAddress);
 
       // Create public client for transaction monitoring
       const publicClient = createPublicClient({
-        chain: useAnvil ? localAnvil : odysseyTestnet,
+        chain: odysseyTestnet,
         transport: http(),
       });
 
@@ -156,18 +152,18 @@ export function AccountDisruption({
     try {
       setImplementationLoading(true);
       
-      const userWallet = createEOAClient(account, useAnvil);
+      const userWallet = createEOAClient(account);
       const initialState = await checkState();
 
       // Create public client for balance check and transaction monitoring
       const publicClient = createPublicClient({
-        chain: useAnvil ? localAnvil : odysseyTestnet,
+        chain: odysseyTestnet,
         transport: http(),
       });
 
       // Check EOA balance and fund if needed
       const balance = await publicClient.getBalance({ address: account.address });
-      const requiredBalance = BigInt(600000000000000); // 0.0006 ETH in wei
+      const requiredBalance = BigInt(1000000000000000); // 0.001 ETH in wei
       if (balance < requiredBalance) {
         const fundingAmount = requiredBalance - balance;
         console.log(`Funding EOA with ${fundingAmount.toString()} wei...`);
@@ -214,9 +210,9 @@ export function AccountDisruption({
           functionName: "upgradeToAndCall",
           args: [FOREIGN_IMPLEMENTATION, "0x"]
         }),
-        gas: BigInt(500000), // Much higher gas limit for contract deployment
-        maxFeePerGas: BigInt(1100000327), // 1.100000327 gwei
-        maxPriorityFeePerGas: BigInt(1100000025), // 1.100000025 gwei
+        gas: BigInt(500000),
+        maxFeePerGas: BigInt(1100000327),
+        maxPriorityFeePerGas: BigInt(1100000025),
         value: BigInt(0)
       });
       

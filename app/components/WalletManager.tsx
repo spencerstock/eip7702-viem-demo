@@ -8,9 +8,8 @@ import {
   createSetImplementationHash,
   signSetImplementation,
   type ExtendedAccount,
-  localAnvil,
 } from "../lib/wallet-utils";
-import { EIP7702ProxyAddresses } from "../lib/abi/EIP7702Proxy";
+import { PROXY_TEMPLATE_ADDRESSES } from "../lib/contracts";
 import { odysseyTestnet } from "../lib/chains";
 import {
   createWebAuthnCredential,
@@ -23,7 +22,6 @@ import {
 import { getNonceFromTracker, verifyPasskeyOwnership, checkContractState } from "../lib/contract-utils";
 
 interface WalletManagerProps {
-  useAnvil: boolean;
   onWalletCreated: (address: string, explorerLink: string | null) => void;
   onUpgradeComplete: (
     address: `0x${string}`,
@@ -52,15 +50,11 @@ function formatError(error: any): string {
   return errorMessage;
 }
 
-function formatExplorerLink(hash: string, useAnvil: boolean, type: 'transaction' | 'address' = 'transaction'): string | null {
-  if (useAnvil) {
-    return null;
-  }
+function formatExplorerLink(hash: string, type: 'transaction' | 'address' = 'transaction'): string | null {
   return `${odysseyTestnet.blockExplorers.default.url}/${type}/${hash}`;
 }
 
 export function WalletManager({
-  useAnvil,
   onWalletCreated,
   onUpgradeComplete,
   resetKey,
@@ -88,7 +82,7 @@ export function WalletManager({
       setError(null);
       const newAccount = await createEOAWallet();
       setAccount(newAccount);
-      const explorerLink = formatExplorerLink(newAccount.address, useAnvil, 'address');
+      const explorerLink = formatExplorerLink(newAccount.address, 'address');
       onWalletCreated(newAccount.address, explorerLink);
       onAccountCreated(newAccount);
     } catch (error) {
@@ -111,18 +105,16 @@ export function WalletManager({
       console.log("EOA address:", account.address);
 
       // Create user's wallet client for signing
-      const userWallet = createEOAClient(account, useAnvil);
+      const userWallet = createEOAClient(account);
 
       // Create public client for reading state
       const publicClient = createPublicClient({
-        chain: useAnvil ? localAnvil : odysseyTestnet,
+        chain: odysseyTestnet,
         transport: http(),
       });
 
       // Get the proxy address based on network
-      const proxyAddress = useAnvil
-        ? EIP7702ProxyAddresses.anvil
-        : EIP7702ProxyAddresses.odyssey;
+      const proxyAddress = PROXY_TEMPLATE_ADDRESSES.odyssey;
       console.log("Proxy template address:", proxyAddress);
 
       // Create a new passkey
@@ -135,13 +127,11 @@ export function WalletManager({
       // Create initialization args with both relayer and passkey as owners
       setStatus("Preparing initialization data and signature...");
       const initArgs = encodeInitializeArgs([
-        useAnvil
-          ? ((await getRelayerWalletClient(true)).account.address as Hex)
-          : (process.env.NEXT_PUBLIC_RELAYER_ADDRESS as Hex),
+        (process.env.NEXT_PUBLIC_RELAYER_ADDRESS as Hex),
         passkey,
       ]);
       const nonce = await getNonceFromTracker(publicClient, account.address);
-      const chainId = useAnvil ? localAnvil.id : odysseyTestnet.id;
+      const chainId = odysseyTestnet.id;
 
       const setImplementationHash = createSetImplementationHash(
         proxyAddress,
@@ -160,11 +150,7 @@ export function WalletManager({
       setStatus("Creating authorization signature...");
       const authorization = await userWallet.signAuthorization({
         contractAddress: proxyAddress,
-        sponsor: useAnvil
-          ? (
-              await getRelayerWalletClient(true)
-            ).account.address
-          : (process.env.NEXT_PUBLIC_RELAYER_ADDRESS as `0x${string}`),
+        sponsor: (process.env.NEXT_PUBLIC_RELAYER_ADDRESS as `0x${string}`),
       });
 
       // Submit the combined upgrade transaction
@@ -203,7 +189,7 @@ export function WalletManager({
 
       // Check if the code was deployed
       setStatus("Verifying deployment...");
-      const state = await checkContractState(publicClient, account.address, useAnvil);
+      const state = await checkContractState(publicClient, account.address);
 
       // TODO: establish constant expected bytecode in the contracts.ts file and use here and elsewhere
       if (state.bytecode !== "0x") {

@@ -1,5 +1,5 @@
-import { PROXY_TEMPLATE_ADDRESSES, NEW_IMPLEMENTATION_ADDRESS } from "../lib/contracts";
-import { MAGIC_PREFIX } from "../lib/contracts";
+import { getExpectedBytecode } from "../lib/contract-utils";
+import { NEW_IMPLEMENTATION_ADDRESS } from "../lib/contracts";
 
 interface Props {
   currentBytecode: string | null;
@@ -8,7 +8,7 @@ interface Props {
 
 // Helper to check if bytecode is correct (includes magic prefix)
 const isCorrectBytecode = (bytecode: string) => {
-  const expectedBytecode = `${MAGIC_PREFIX}${PROXY_TEMPLATE_ADDRESSES.odyssey.slice(2).toLowerCase()}`;
+  const expectedBytecode = getExpectedBytecode(false);
   return bytecode.toLowerCase() === expectedBytecode.toLowerCase();
 };
 

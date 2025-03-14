@@ -7,7 +7,8 @@ import { type ExtendedAccount } from "./lib/wallet-utils";
 import { odysseyTestnet } from "./lib/chains";
 import { type P256Credential } from "viem/account-abstraction";
 import { AccountDisruption } from "./components/AccountDisruption";
-import { PROXY_TEMPLATE_ADDRESSES, NEW_IMPLEMENTATION_ADDRESS } from "./lib/contracts";
+import { NEW_IMPLEMENTATION_ADDRESS } from "./lib/contracts";
+import { getExpectedBytecode } from "./lib/contract-utils";
 
 export default function Home() {
   const [resetKey, setResetKey] = useState(0);
@@ -57,7 +58,7 @@ export default function Home() {
       setCurrentBytecode(bytecode);
       
       // Check if delegate is disrupted by comparing bytecode with expected format
-      const expectedBytecode = `0xef0100${PROXY_TEMPLATE_ADDRESSES.odyssey.slice(2).toLowerCase()}`.toLowerCase();
+      const expectedBytecode = getExpectedBytecode(false);
       const currentBytecode = bytecode.toLowerCase();
       const newDelegateDisrupted = currentBytecode !== "0x" && currentBytecode !== expectedBytecode;
       setIsDelegateDisrupted(newDelegateDisrupted);
@@ -103,7 +104,6 @@ export default function Home() {
 
       <div className="mb-8">
         <WalletManager
-          useAnvil={false}
           onWalletCreated={(address, explorerLink) => {
             setWalletAddress(address);
             setWalletExplorerLink(explorerLink);
@@ -199,7 +199,6 @@ export default function Home() {
         <AccountDisruption
           account={account}
           smartWalletAddress={walletAddress as `0x${string}`}
-          useAnvil={false}
           onDisruptionComplete={handleDisruptionComplete}
           currentBytecode={currentBytecode}
           currentSlotValue={currentSlotValue}
@@ -212,7 +211,6 @@ export default function Home() {
           smartWalletAddress={walletAddress as `0x${string}`}
           passkey={passkey}
           account={account!}
-          useAnvil={false}
           isDelegateDisrupted={isDelegateDisrupted}
           isImplementationDisrupted={isImplementationDisrupted}
           onRecoveryComplete={handleRecoveryComplete}

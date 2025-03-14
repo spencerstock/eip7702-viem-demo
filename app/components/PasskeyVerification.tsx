@@ -7,7 +7,7 @@ import {
   type UserOperation,
 } from "viem/account-abstraction";
 import { odysseyTestnet } from "../lib/chains";
-import { localAnvil, createSetImplementationHash, type ExtendedAccount, createEOAClient, signSetImplementation } from "../lib/wallet-utils";
+import { createSetImplementationHash, type ExtendedAccount, createEOAClient, signSetImplementation } from "../lib/wallet-utils";
 import { serializeBigInts } from "../lib/smart-account";
 import { RecoveryModal } from "./RecoveryModal";
 import { PROXY_TEMPLATE_ADDRESSES, NEW_IMPLEMENTATION_ADDRESS } from "../lib/contracts";
@@ -25,7 +25,6 @@ type Props = {
   smartWalletAddress: Address;
   passkey: P256Credential;
   account: ExtendedAccount;
-  useAnvil?: boolean;
   isDelegateDisrupted: boolean;
   isImplementationDisrupted: boolean;
   onRecoveryComplete: () => void;
@@ -34,7 +33,7 @@ type Props = {
 
 const waitForTransaction = async (
   hash: Hash,
-  chain: typeof odysseyTestnet | typeof localAnvil
+  chain: typeof odysseyTestnet
 ) => {
   const publicClient = createPublicClient({
     chain,
@@ -45,14 +44,9 @@ const waitForTransaction = async (
 
 function TransactionLink({
   hash,
-  useAnvil,
 }: {
   hash: Hash;
-  useAnvil: boolean;
 }) {
-  if (useAnvil) {
-    return <code className="font-mono text-green-400">{hash}</code>;
-  }
   return (
     <a
       href={`${odysseyTestnet.blockExplorers.default.url}/tx/${hash}`}
@@ -67,10 +61,8 @@ function TransactionLink({
 
 function StepDisplay({
   step,
-  useAnvil,
 }: {
   step: VerificationStep;
-  useAnvil: boolean;
 }) {
   return (
     <div className="mb-4 p-4 bg-gray-800 rounded-lg w-full max-w-5xl mx-auto">
@@ -88,7 +80,7 @@ function StepDisplay({
         <div className="mt-2 ml-6">
           <span className="text-gray-400 mr-2">Transaction:</span>
           <div className="break-all">
-            <TransactionLink hash={step.txHash} useAnvil={useAnvil} />
+            <TransactionLink hash={step.txHash} />
           </div>
         </div>
       )}
@@ -113,7 +105,6 @@ export function PasskeyVerification({
   smartWalletAddress,
   passkey,
   account,
-  useAnvil = false,
   isDelegateDisrupted,
   isImplementationDisrupted,
   onRecoveryComplete,
@@ -123,7 +114,7 @@ export function PasskeyVerification({
   const [steps, setSteps] = useState<VerificationStep[]>([]);
   const [isVerified, setIsVerified] = useState(false);
   const [showRecoveryModal, setShowRecoveryModal] = useState(false);
-  const chain = useAnvil ? localAnvil : odysseyTestnet;
+  const chain = odysseyTestnet;
 
   const updateStep = (index: number, updates: Partial<VerificationStep>) => {
     setSteps((current) =>
@@ -137,11 +128,11 @@ export function PasskeyVerification({
 
   const checkState = async () => {
     const publicClient = createPublicClient({
-      chain: useAnvil ? localAnvil : odysseyTestnet,
+      chain: odysseyTestnet,
       transport: http(),
     });
 
-    const state = await checkContractState(publicClient, smartWalletAddress, useAnvil);
+    const state = await checkContractState(publicClient, smartWalletAddress);
     onStateChange(state.bytecode, state.implementation);
   };
 
@@ -186,7 +177,6 @@ export function PasskeyVerification({
             operation: "fund",
             targetAddress: smartWalletAddress,
             value: "1",
-            useAnvil,
           }),
         });
         if (!response.ok) {
@@ -213,7 +203,7 @@ export function PasskeyVerification({
         const depositResponse = await fetch("/api/verify-passkey/deposit", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ smartWalletAddress, useAnvil }),
+          body: JSON.stringify({ smartWalletAddress }),
         });
 
         if (!depositResponse.ok) {
@@ -320,7 +310,6 @@ export function PasskeyVerification({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           userOp: serializeBigInts(userOp),
-          useAnvil,
         }),
       });
 
@@ -356,7 +345,6 @@ export function PasskeyVerification({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           smartWalletAddress,
-          useAnvil,
         }),
       });
 
@@ -398,7 +386,7 @@ export function PasskeyVerification({
     } finally {
       setVerifying(false);
     }
-  }, [smartWalletAddress, passkey, useAnvil, chain, isDelegateDisrupted, isImplementationDisrupted]);
+  }, [smartWalletAddress, passkey, chain, isDelegateDisrupted, isImplementationDisrupted]);
 
   const handleRecover = async () => {
     try {
@@ -410,7 +398,7 @@ export function PasskeyVerification({
         isComplete: false,
       });
 
-      const userWallet = createEOAClient(account, useAnvil);
+      const userWallet = createEOAClient(account);
       const publicClient = createPublicClient({
         chain,
         transport: http(),
@@ -428,7 +416,7 @@ export function PasskeyVerification({
         });
 
         const authorization = await userWallet.signAuthorization({
-          contractAddress: PROXY_TEMPLATE_ADDRESSES[useAnvil ? 'anvil' : 'odyssey'],
+          contractAddress: PROXY_TEMPLATE_ADDRESSES['odyssey'],
           sponsor: true,
           chainId: 0,
         });
@@ -473,10 +461,10 @@ export function PasskeyVerification({
 
         const currentImplementation = await getCurrentImplementation(publicClient, smartWalletAddress);
         const nonce = await getNonceFromTracker(publicClient, smartWalletAddress);
-        const chainId = useAnvil ? localAnvil.id : odysseyTestnet.id;
+        const chainId = odysseyTestnet.id;
 
         const setImplementationHash = createSetImplementationHash(
-          PROXY_TEMPLATE_ADDRESSES[useAnvil ? 'anvil' : 'odyssey'],
+          PROXY_TEMPLATE_ADDRESSES['odyssey'],
           NEW_IMPLEMENTATION_ADDRESS,
           "0x",
           nonce,
@@ -531,17 +519,17 @@ export function PasskeyVerification({
         });
 
         const authorization = await userWallet.signAuthorization({
-          contractAddress: PROXY_TEMPLATE_ADDRESSES[useAnvil ? 'anvil' : 'odyssey'],
+          contractAddress: PROXY_TEMPLATE_ADDRESSES['odyssey'],
           sponsor: true,
           chainId: 0,
         });
 
         const currentImplementation = await getCurrentImplementation(publicClient, smartWalletAddress);
         const nonce = await getNonceFromTracker(publicClient, smartWalletAddress);
-        const chainId = useAnvil ? localAnvil.id : odysseyTestnet.id;
+        const chainId = odysseyTestnet.id;
         
         const setImplementationHash = createSetImplementationHash(
-          PROXY_TEMPLATE_ADDRESSES[useAnvil ? 'anvil' : 'odyssey'],
+          PROXY_TEMPLATE_ADDRESSES['odyssey'],
           NEW_IMPLEMENTATION_ADDRESS,
           "0x", // No initialization needed for reset
           nonce,
@@ -618,7 +606,7 @@ export function PasskeyVerification({
 
       <div className="w-full space-y-4">
         {steps.map((step, index) => (
-          <StepDisplay key={index} step={step} useAnvil={useAnvil} />
+          <StepDisplay key={index} step={step} />
         ))}
       </div>
 

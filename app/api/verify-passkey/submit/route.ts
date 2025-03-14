@@ -2,12 +2,11 @@ import { NextResponse } from "next/server";
 import { type Hash, createPublicClient, createWalletClient, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { odysseyTestnet } from "../../../lib/chains";
-import { localAnvil } from "../../../lib/wallet-utils";
 import { EntryPointAddress, EntryPointAbi } from "../../../lib/abi/EntryPoint";
 
 export async function POST(request: Request) {
   try {
-    const { userOp, useAnvil } = await request.json();
+    const { userOp } = await request.json();
 
     // Create wallet client for the relayer
     const relayerAccount = privateKeyToAccount(
@@ -15,7 +14,7 @@ export async function POST(request: Request) {
     );
     const walletClient = createWalletClient({
       account: relayerAccount,
-      chain: useAnvil ? localAnvil : odysseyTestnet,
+      chain: odysseyTestnet,
       transport: http(),
     });
 

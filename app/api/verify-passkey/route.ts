@@ -5,7 +5,6 @@ import {
   createWalletClient,
   http,
 } from "viem";
-import { localAnvil } from "@/app/lib/wallet-utils";
 import { odysseyTestnet } from "@/app/lib/chains";
 import { EntryPointAddress, EntryPointAbi } from "@/app/lib/abi/EntryPoint";
 import {
@@ -32,7 +31,6 @@ export async function POST(request: Request) {
       smartWalletAddress,
       publicKey,
       userOp: serializedUserOp,
-      useAnvil,
     } = await request.json();
 
     console.log("\n=== Backend: UserOp as received ===");
@@ -63,7 +61,7 @@ export async function POST(request: Request) {
 
     // Create public client
     const publicClient = createPublicClient({
-      chain: useAnvil ? localAnvil : odysseyTestnet,
+      chain: odysseyTestnet,
       transport: http(),
     });
 
@@ -139,7 +137,7 @@ export async function POST(request: Request) {
       );
       const walletClient = createWalletClient({
         account: relayer,
-        chain: useAnvil ? localAnvil : odysseyTestnet,
+        chain: odysseyTestnet,
         transport: http(),
       });
 
@@ -169,14 +167,12 @@ export async function POST(request: Request) {
       await ensureEntryPointDeposit({
         smartWalletAddress: smartWalletAddress as Address,
         amount: BigInt(1e16), // 0.01 ETH should be enough for gas costs
-        useAnvil,
         onStatus: addStatus,
       });
 
       addStatus("Submitting userOp...");
       const { hash, userOpHash } = await submitUserOp({
         userOp: userOp,
-        useAnvil,
         onStatus: addStatus,
       });
       addStatus(
@@ -215,7 +211,6 @@ export async function POST(request: Request) {
       const result = await withdrawEntryPointDeposit({
         smartWalletAddress: smartWalletAddress as Address,
         withdrawAddress: process.env.NEXT_PUBLIC_RELAYER_ADDRESS as Address,
-        useAnvil,
         onStatus: addStatus,
       });
       if (result?.hash) {

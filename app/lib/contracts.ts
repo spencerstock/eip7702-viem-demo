@@ -7,7 +7,6 @@ export const ENTRYPOINT_ADDRESS =
 // Network-specific proxy template addresses
 export const PROXY_TEMPLATE_ADDRESSES: { [key: string]: Address } = {
   odyssey: "0xcA271A94dd66982180960B579de6B3213084D67A",
-  anvil: "0x0000000000000000000000000000000000000000",
 } as const;
 
 // Validator contract address

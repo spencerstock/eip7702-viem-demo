@@ -8,7 +8,6 @@ import {
   type Hex,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { anvil } from "viem/chains";
 import { eip7702Actions } from "viem/experimental";
 import { secp256k1 } from "@noble/curves/secp256k1";
 import { hexToBytes } from "@noble/curves/abstract/utils";
@@ -18,41 +17,12 @@ import {
   VALIDATOR_ADDRESS,
 } from "./contracts";
 
-// Configure anvil chain with the correct URL
-export const localAnvil = {
-  ...anvil,
-  rpcUrls: {
-    default: {
-      http: ["http://127.0.0.1:8545"],
-    },
-    public: {
-      http: ["http://127.0.0.1:8545"],
-    },
-  },
-} as const;
-
-// Anvil's first pre-funded account
-export const ANVIL_RELAYER_PRIVATE_KEY =
-  "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
-
 // Add a type for our extended account that includes the private key
 export type ExtendedAccount = ReturnType<typeof privateKeyToAccount> & {
   _privateKey: Hex;
 };
 
-export async function getRelayerWalletClient(useAnvil = true) {
-  if (useAnvil) {
-    // For Anvil, we can still use the local account
-    const privateKey = ANVIL_RELAYER_PRIVATE_KEY as Hex;
-    const relayerAccount = privateKeyToAccount(privateKey);
-    return createWalletClient({
-      account: relayerAccount,
-      chain: localAnvil,
-      transport: http(),
-    }).extend(eip7702Actions());
-  }
-
-  // For non-Anvil, return a proxy that calls our API
+export async function getRelayerWalletClient() {
   return {
     account: {
       // Use the public relayer address
@@ -90,11 +60,11 @@ export async function getRelayerWalletClient(useAnvil = true) {
   };
 }
 
-export function createEOAClient(account: ExtendedAccount, useAnvil = true) {
+export function createEOAClient(account: ExtendedAccount) {
   // Create the wallet client with the extended account to get access to private key
   return createWalletClient({
     account,
-    chain: useAnvil ? localAnvil : odysseyTestnet,
+    chain: odysseyTestnet,
     transport: http(),
   }).extend(eip7702Actions());
 }
