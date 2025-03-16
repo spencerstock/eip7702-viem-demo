@@ -9,16 +9,16 @@ export const EIP7702PROXY_TEMPLATE_ADDRESS = "0xcA271A94dd66982180960B579de6B321
 export const NONCE_TRACKER_ADDRESS = "0x1e3C75E11F8c31ffe8BA28A648B1D58566df6d72" as const;
 
 // Validator contract address, validates CBSW_IMPLEMENTATION_ADDRESS
-// export const VALIDATOR_ADDRESS = "0xA96fc9fA032e5f58E225D979f985D51BCb671eF8" as const; // REAL CBSW VALIDATOR
-export const VALIDATOR_ADDRESS = "0x8790950DE933b1c455F178ec0533156dBF291825" as const; // ALWAYS PASSING VALIDATOR
+export const VALIDATOR_ADDRESS = "0xA96fc9fA032e5f58E225D979f985D51BCb671eF8" as const; // REAL CBSW VALIDATOR
+
 // CoinbaseSmartWallet implementation address
 export const CBSW_IMPLEMENTATION_ADDRESS = "0x3e0BecB45eBf7Bd1e3943b9521264Bc5B0bd8Ca9" as const;
 
 // A mock UUPSUpgradeable implementation
 export const FOREIGN_1967_IMPLEMENTATION = "0xbAaaB2feecd974717816FA5ac540D96ad12eb342" as const;
 
+// MultiOwnableStorageEraser has function that can erase nextOwnerIndex storage slot
 export const STORAGE_ERASER_ADDRESS = "0xadC0e11403eB0802aeF8B64d510e88b084e55aF2" as const;
-
 
 // Standard EntryPoint address (same across networks)
 export const ENTRYPOINT_ADDRESS =
