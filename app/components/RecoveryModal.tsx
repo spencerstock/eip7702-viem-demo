@@ -1,9 +1,12 @@
+import { useState } from "react";
+
 interface Props {
   isOpen: boolean;
   onClose: () => void;
   onRecover: () => Promise<void>;
   delegateIssue: boolean;
   implementationIssue: boolean;
+  ownershipDisrupted: boolean;
 }
 
 export function RecoveryModal({
@@ -12,23 +15,33 @@ export function RecoveryModal({
   onRecover,
   delegateIssue,
   implementationIssue,
+  ownershipDisrupted,
 }: Props) {
+  const [isRecovering, setIsRecovering] = useState(false);
+
   if (!isOpen) return null;
 
   const renderIssues = () => {
-    if (delegateIssue && implementationIssue) {
-      return "both the delegate and implementation addresses are incorrect";
-    } else if (delegateIssue) {
-      return "the delegate address is incorrect";
-    } else if (implementationIssue) {
-      return "the implementation address is incorrect";
-    }
-    return "";
+    const issues = [];
+    if (delegateIssue) issues.push("delegate");
+    if (implementationIssue) issues.push("implementation");
+    if (ownershipDisrupted) issues.push("ownership");
+    
+    return issues.length > 1 
+      ? `${issues.slice(0, -1).join(", ")} and ${issues.slice(-1)[0]} are incorrect`
+      : `the ${issues[0]} is incorrect`;
   };
 
   const handleRecover = async () => {
-    onClose(); // Close the modal first
-    await onRecover(); // Then start the recovery process
+    try {
+      setIsRecovering(true);
+      onClose(); // Close the modal first
+      await onRecover(); // Then start the recovery process
+    } catch (error) {
+      console.error("Recovery failed:", error);
+    } finally {
+      setIsRecovering(false);
+    }
   };
 
   return (
@@ -38,7 +51,11 @@ export function RecoveryModal({
         
         <p className="text-gray-300 mb-6">
           Your account is in an inconsistent state where {renderIssues()}. 
-          Would you like to restore it to the correct state?
+          {ownershipDisrupted && (
+            <span className="block mt-2">
+              The ownership state will be restored using your original passkey.
+            </span>
+          )}
         </p>
 
         <div className="flex justify-end gap-4">
@@ -50,9 +67,10 @@ export function RecoveryModal({
           </button>
           <button
             onClick={handleRecover}
-            className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+            disabled={isRecovering}
+            className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50"
           >
-            Restore Account
+            {isRecovering ? "Recovering..." : "Restore Account"}
           </button>
         </div>
       </div>

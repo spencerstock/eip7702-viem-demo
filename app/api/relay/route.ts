@@ -115,7 +115,7 @@ export async function POST(request: Request) {
         const hash = await submitTransaction(
           targetAddress,
           BigInt(0),
-          "0x",  // Add empty calldata
+          "0x",  // Empty calldata for only the 7702 authorization
           authorizationList
         );
         
@@ -166,7 +166,8 @@ export async function POST(request: Request) {
         const data = encodeSetImplementation(
           CBSW_IMPLEMENTATION_ADDRESS,
           initArgs,
-          signature
+          signature,
+          false
         );
         
         const hash = await submitTransaction(
@@ -185,7 +186,6 @@ export async function POST(request: Request) {
         
         return Response.json({ hash });
       }
-
       // *************** Erase Storage ****************************
       case "eraseStorage": {
         console.log("\n=== Erasing Storage ===");

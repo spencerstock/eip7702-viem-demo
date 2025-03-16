@@ -83,6 +83,20 @@ export function encodeInitializeArgs(
   });
 }
 
+// Encodes a call to NonceTracker.useNonce()
+export function encodeUseNonce(): Hex {
+  return encodeFunctionData({
+    abi: [{
+      type: "function",
+      name: "useNonce",
+      inputs: [],
+      outputs: [{ type: "uint256", name: "nonce" }],
+      stateMutability: "nonpayable"
+    }],
+    functionName: "useNonce",
+  });
+}
+
 // Creates the hash to be signed for a call to `EIP7702Proxy.setImplementation`
 export function createSetImplementationHash(
   proxyAddr: Hex,
@@ -115,7 +129,7 @@ export function createSetImplementationHash(
     ],
     [
       typeHash,
-      allowCrossChainReplay ? BigInt(0) : chainId,
+      chainId,
       proxyAddr,
       nonce,
       currentImplementation,

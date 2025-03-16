@@ -1,5 +1,5 @@
 import { type Address, type PublicClient } from "viem";
-import { NONCE_TRACKER_ADDRESS, ERC1967_IMPLEMENTATION_SLOT, MAGIC_PREFIX, EIP7702PROXY_TEMPLATE_ADDRESS, CBSW_IMPLEMENTATION_ADDRESS, ENTRYPOINT_ADDRESS } from "./constants";
+import { NONCE_TRACKER_ADDRESS, ERC1967_IMPLEMENTATION_SLOT, MAGIC_PREFIX, EIP7702PROXY_TEMPLATE_ADDRESS, CBSW_IMPLEMENTATION_ADDRESS, ENTRYPOINT_ADDRESS, NEXT_OWNER_INDEX_SLOT } from "./constants";
 import type { P256Credential } from "viem/account-abstraction";
 import { ENTRYPOINT_ABI } from "./abi/EntryPoint";
 
@@ -58,24 +58,22 @@ export function getExpectedBytecode() {
   return `${MAGIC_PREFIX}${EIP7702PROXY_TEMPLATE_ADDRESS.slice(2).toLowerCase()}`.toLowerCase();
 }
 
-// Gets the current nextOwnerIndex value from the account
+// Gets the current nextOwnerIndex value from the account's storage
 export async function getNextOwnerIndex(
   publicClient: PublicClient,
   address: Address
 ): Promise<bigint> {
-  const nextOwnerIndex = await publicClient.readContract({
+  const storageValue = await publicClient.getStorageAt({
     address,
-    abi: [{
-      type: "function",
-      name: "nextOwnerIndex",
-      inputs: [],
-      outputs: [{ type: "uint256" }],
-      stateMutability: "view"
-    }],
-    functionName: "nextOwnerIndex",
+    slot: NEXT_OWNER_INDEX_SLOT,
   });
 
-  return nextOwnerIndex;
+  if (!storageValue) {
+    return BigInt(0);
+  }
+
+  // Convert the hex storage value to a bigint
+  return BigInt(storageValue);
 }
 
 // Checks the current state of the contract at the given address

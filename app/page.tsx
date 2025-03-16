@@ -228,6 +228,7 @@ export default function Home() {
           isOwnershipDisrupted={isOwnershipDisrupted}
           onRecoveryComplete={handleRecoveryComplete}
           onStateChange={handleStateChange}
+          onPasskeyStored={setPasskey}
         />
       )}
 
