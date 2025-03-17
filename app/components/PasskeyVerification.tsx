@@ -1,18 +1,16 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { type Address, type Hash, type Hex, createPublicClient, http } from "viem";
 import {
   type P256Credential,
   toWebAuthnAccount,
   toCoinbaseSmartAccount,
   type UserOperation,
-  createWebAuthnCredential,
 } from "viem/account-abstraction";
 import { odysseyTestnet } from "../lib/chains";
-import { createSetImplementationHash, type ExtendedAccount, createEOAClient, signSetImplementation, encodeInitializeArgs } from "../lib/wallet-utils";
 import { serializeBigInts } from "../lib/relayer-utils";
-import { RecoveryModal } from "./RecoveryModal";
-import { EIP7702PROXY_TEMPLATE_ADDRESS, CBSW_IMPLEMENTATION_ADDRESS } from "../lib/constants";
-import { getNonceFromTracker, checkContractState, checkAccountBalances, getCurrentImplementation, verifyPasskeyOwnership } from "../lib/contract-utils";
+import { type ExtendedAccount } from "../lib/wallet-utils";
+import { checkAccountBalances, verifyPasskeyOwnership } from "../lib/contract-utils";
+import { AccountRecovery } from "./AccountRecovery";
 
 type VerificationStep = {
   status: string;
@@ -31,6 +29,7 @@ type Props = {
   isOwnershipDisrupted: boolean;
   onRecoveryComplete: () => void;
   onStateChange: (bytecode: string | null, slotValue: string | null, nextOwnerIndex?: bigint) => void;
+  onPasskeyStored: (passkey: P256Credential) => void;
 };
 
 const waitForTransaction = async (
@@ -44,11 +43,7 @@ const waitForTransaction = async (
   await publicClient.waitForTransactionReceipt({ hash });
 };
 
-function TransactionLink({
-  hash,
-}: {
-  hash: Hash;
-}) {
+function TransactionLink({ hash }: { hash: Hash }) {
   return (
     <a
       href={`${odysseyTestnet.blockExplorers.default.url}/tx/${hash}`}
@@ -61,11 +56,7 @@ function TransactionLink({
   );
 }
 
-function StepDisplay({
-  step,
-}: {
-  step: VerificationStep;
-}) {
+function StepDisplay({ step }: { step: VerificationStep }) {
   return (
     <div className="mb-4 p-4 bg-gray-800 rounded-lg w-full max-w-5xl mx-auto">
       <div className="flex items-center gap-2">
@@ -113,387 +104,23 @@ export function PasskeyVerification({
   onRecoveryComplete,
   onStateChange,
   onPasskeyStored,
-}: Props & { onPasskeyStored: (passkey: P256Credential) => void }) {
+}: Props) {
   const [verifying, setVerifying] = useState(false);
   const [steps, setSteps] = useState<VerificationStep[]>([]);
   const [isVerified, setIsVerified] = useState(false);
-  const [showRecoveryModal, setShowRecoveryModal] = useState(false);
   const chain = odysseyTestnet;
 
-  // Helper function to prepare initialization data for recovery
-  const prepareInitializationData = (recoveryPasskey?: P256Credential): Hex => {
-    let initArgs: Hex = "0x" as const;
-    if (isOwnershipDisrupted && recoveryPasskey) {
-      addStep({
-        status: "Preparing initialization data with new passkey...",
-        isComplete: false,
-      });
-
-      // Create initialization args with ONLY the new passkey as owner
-      initArgs = encodeInitializeArgs([
-        recoveryPasskey,
-      ]);
-
-      updateStep(steps.length - 1, {
-        status: "Initialization data prepared",
-        isComplete: true,
-      });
-    } 
-    console.log("Initialization data:", initArgs);
-    return initArgs;
-  };
-
-  // This function is called when the user clicks the "Restore Account" button
-  // Handles the logic for recovering the account from a delegate or implementation disruption,
-  // or both.
-  const handleRecover = async () => {
-    try {
-      console.log("\n=== Starting account recovery ===");
-      console.log("Current state:", {
-        isDelegateDisrupted,
-        isImplementationDisrupted,
-        isOwnershipDisrupted
-      });
-
-      setVerifying(true);
+  // Reset verification state when component becomes visible again after disruption
+  const isDisrupted = isDelegateDisrupted || isImplementationDisrupted || isOwnershipDisrupted;
+  useEffect(() => {
+    if (!isDisrupted) {
       setSteps([]);
       setIsVerified(false);
-      addStep({
-        status: "Starting account recovery...",
-        isComplete: false,
-      });
-
-      const userWallet = createEOAClient(account);
-      const publicClient = createPublicClient({
-        chain,
-        transport: http(),
-      });
-
-      updateStep(0, {
-        status: "Account recovery initialized",
-        isComplete: true,
-      });
-
-      // Create a new passkey if ownership is disrupted
-      let recoveryPasskey: P256Credential | undefined;
-      if (isOwnershipDisrupted) {
-        console.log("Ownership is disrupted, creating new passkey...");
-        addStep({
-          status: "Creating new passkey for ownership restoration...",
-          isComplete: false,
-        });
-
-        try {
-          console.log("Calling createWebAuthnCredential...");
-          recoveryPasskey = await createWebAuthnCredential({
-            name: "Smart Wallet Owner",
-          });
-          console.log("Created new passkey:", recoveryPasskey);
-
-          if (!recoveryPasskey) {
-            throw new Error("Failed to create new passkey - returned undefined");
-          }
-
-          console.log("Storing new passkey via onPasskeyStored...");
-          if (!onPasskeyStored) {
-            throw new Error("onPasskeyStored callback is not defined");
-          }
-          onPasskeyStored(recoveryPasskey);
-          console.log("Successfully stored new passkey");
-
-          updateStep(1, {
-            status: "New passkey created successfully",
-            isComplete: true,
-          });
-        } catch (error) {
-          console.error("Error during passkey creation:", error);
-          throw error; // Re-throw to be caught by outer try-catch
-        }
-      }
-
-      // ********************* Delegate-only recovery *********************
-      if (isDelegateDisrupted && !isImplementationDisrupted) {
-        addStep({
-          status: "Resetting delegate...",
-          isComplete: false,
-        });
-
-        const authorization = await userWallet.signAuthorization({
-          contractAddress: EIP7702PROXY_TEMPLATE_ADDRESS,
-          sponsor: true,
-          chainId: odysseyTestnet.id,
-        });
-
-        const response = await fetch("/api/relay", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            operation: "submit7702Auth",
-            targetAddress: smartWalletAddress,
-            authorizationList: [authorization],
-          }, (_, value) => 
-            typeof value === "bigint" ? value.toString() : value
-          ),
-        });
-
-        if (!response.ok) {
-          throw new Error("Failed to reset delegate");
-        }
-
-        const { hash } = await response.json();
-        updateStep(steps.length - 1, {
-          status: "Waiting for delegate reset transaction...",
-          isComplete: false,
-          txHash: hash,
-        });
-
-        await waitForTransaction(hash, chain);
-        await checkState();
-        updateStep(steps.length - 1, {
-          status: "Successfully reset delegate",
-          isComplete: true,
-          txHash: hash,
-        });
-      }
-
-      // ********************* Implementation-only recovery *********************
-      else if (!isDelegateDisrupted && isImplementationDisrupted) {
-        addStep({
-          status: "Resetting implementation to correct version...",
-          isComplete: false,
-        });
-
-        const currentImplementation = await getCurrentImplementation(publicClient, smartWalletAddress);
-        const nonce = await getNonceFromTracker(publicClient, smartWalletAddress);
-        const chainId = odysseyTestnet.id;
-
-        // If ownership is disrupted, include initialization data with the new passkey
-        const initArgs = prepareInitializationData(recoveryPasskey);
-
-        const setImplementationHash = createSetImplementationHash(
-          EIP7702PROXY_TEMPLATE_ADDRESS,
-          CBSW_IMPLEMENTATION_ADDRESS,
-          initArgs,
-          nonce,
-          currentImplementation,
-          false,
-          BigInt(chainId)
-        );
-
-        const signature = await signSetImplementation(userWallet, setImplementationHash);
-
-        updateStep(steps.length - 2, {
-          status: "Preparing implementation reset transaction...",
-          isComplete: true,
-        });
-
-        const response = await fetch("/api/relay", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            operation: "setImplementation",
-            targetAddress: smartWalletAddress,
-            signature,
-            initArgs,
-          }, (_, value) => 
-            typeof value === "bigint" ? value.toString() : value
-          ),
-        });
-
-        if (!response.ok) {
-          throw new Error("Failed to reset implementation");
-        }
-
-        const { hash } = await response.json();
-        updateStep(steps.length - 2, {
-          status: "Waiting for implementation reset transaction...",
-          isComplete: false,
-          txHash: hash,
-        });
-
-        await waitForTransaction(hash, chain);
-        await checkState();
-
-        // Verify passkey ownership if we restored ownership
-        if (isOwnershipDisrupted && recoveryPasskey) {
-          addStep({
-            status: "Verifying passkey ownership...",
-            isComplete: false,
-          });
-
-          const isOwner = await verifyPasskeyOwnership(publicClient, smartWalletAddress, recoveryPasskey);
-
-          if (!isOwner) {
-            throw new Error("Passkey verification failed: not registered as an owner");
-          }
-
-          updateStep(steps.length - 1, {
-            status: "Passkey ownership verified",
-            isComplete: true,
-          });
-        }
-
-        updateStep(steps.length - 2, {
-          status: "Successfully reset implementation" + (isOwnershipDisrupted ? " and restored ownership" : ""),
-          isComplete: true,
-          txHash: hash,
-        });
-      }
-
-      // ********************* Delegate and implementation recovery ********************* 
-      else if (isDelegateDisrupted && isImplementationDisrupted) {
-        const recoveryStepIndex = steps.length;
-        addStep({
-          status: "Resetting both delegate and implementation...",
-          isComplete: false,
-        });
-
-        console.log("Signing authorization for delegate and implementation reset...");
-        const authorization = await userWallet.signAuthorization({
-          contractAddress: EIP7702PROXY_TEMPLATE_ADDRESS,
-          sponsor: true,
-          chainId: odysseyTestnet.id,
-        });
-
-        const currentImplementation = await getCurrentImplementation(publicClient, smartWalletAddress);
-        const nonce = await getNonceFromTracker(publicClient, smartWalletAddress);
-        const chainId = odysseyTestnet.id;
-
-        // If ownership is disrupted, include initialization data with the new passkey
-        const initArgs = prepareInitializationData(recoveryPasskey);
-        const setImplementationHash = createSetImplementationHash(
-          EIP7702PROXY_TEMPLATE_ADDRESS,
-          CBSW_IMPLEMENTATION_ADDRESS,
-          initArgs,
-          nonce,
-          currentImplementation,
-          false,
-          BigInt(chainId)
-        );
-
-        const signature = await signSetImplementation(userWallet, setImplementationHash);
-
-        const response = await fetch("/api/relay", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            operation: "upgradeEOA",
-            targetAddress: smartWalletAddress,
-            initArgs,
-            signature,
-            authorizationList: [authorization],
-          }, (_, value) => 
-            typeof value === "bigint" ? value.toString() : value
-          ),
-        });
-        if (!response.ok) {
-          throw new Error("Failed to reset delegate and implementation");
-        }
-
-        const { hash } = await response.json();
-        updateStep(recoveryStepIndex, {
-          status: "Waiting for reset transaction...",
-          isComplete: false,
-          txHash: hash,
-        });
-
-        await waitForTransaction(hash, chain);
-        await checkState();
-        updateStep(recoveryStepIndex, {
-          status: "Successfully reset delegate and implementation" + (isOwnershipDisrupted ? " and restored ownership" : ""),
-          isComplete: true,
-          txHash: hash,
-        });
-
-        // If we restored ownership, verify the passkey
-        if (isOwnershipDisrupted && recoveryPasskey) {
-          const verifyStepIndex = steps.length;
-          addStep({
-            status: "Verifying passkey ownership...",
-            isComplete: false,
-          });
-
-          const isOwner = await verifyPasskeyOwnership(publicClient, smartWalletAddress, recoveryPasskey);
-
-          if (!isOwner) {
-            throw new Error("Passkey verification failed: not registered as an owner");
-          }
-
-          updateStep(verifyStepIndex, {
-            status: "Passkey ownership verified",
-            isComplete: true,
-          });
-        }
-      }
-
-      onRecoveryComplete();
-      setShowRecoveryModal(false);
-      
-      // Do a final state check to ensure UI is up to date
-      console.log("Performing final state check after recovery...");
-      await checkState();
-      
-      // Add final success step
-      addStep({
-        status: "Account recovered successfully",
-        isComplete: true,
-      });
-
-      // Mark all incomplete steps as complete
-      setSteps(current => 
-        current.map(step => ({
-          ...step,
-          isComplete: true,
-          status: step.status.startsWith("Waiting") ? 
-            step.status.replace("Waiting", "Completed") : 
-            step.status
-        }))
-      );
-    } catch (error) {
-      console.error("Recovery error:", error);
-      
-      // Check final state even if recovery failed
-      console.log("Checking final state after error...");
-      await checkState();
-
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
-      addStep({
-        status: "Recovery failed",
-        isComplete: true,
-        error: errorMessage,
-      });
-    } finally {
       setVerifying(false);
     }
-  };
-
-  const updateStep = (index: number, updates: Partial<VerificationStep>) => {
-    setSteps((current) =>
-      current.map((step, i) => (i === index ? { ...step, ...updates } : step))
-    );
-  };
-
-  const addStep = (step: VerificationStep) => {
-    setSteps((current) => [...current, step]);
-  };
-
-  const checkState = async () => {
-    const publicClient = createPublicClient({
-      chain: odysseyTestnet,
-      transport: http(),
-    });
-
-    const state = await checkContractState(publicClient, smartWalletAddress);
-    onStateChange(state.bytecode, state.implementation, state.nextOwnerIndex);
-  };
+  }, [isDisrupted]);
 
   const handleVerify = useCallback(async () => {
-    if (isDelegateDisrupted || isImplementationDisrupted) {
-      setShowRecoveryModal(true);
-      return;
-    }
-
     try {
       setVerifying(true);
       setSteps([]);
@@ -762,42 +389,58 @@ export function PasskeyVerification({
     } finally {
       setVerifying(false);
     }
-  }, [smartWalletAddress, passkey, chain, isDelegateDisrupted, isImplementationDisrupted]);
+  }, [smartWalletAddress, passkey, chain]);
 
+  const updateStep = (index: number, updates: Partial<VerificationStep>) => {
+    setSteps((current) =>
+      current.map((step, i) => (i === index ? { ...step, ...updates } : step))
+    );
+  };
+
+  const addStep = (step: VerificationStep) => {
+    setSteps((current) => [...current, step]);
+  };
 
   return (
     <div className="flex flex-col items-center w-full max-w-5xl mx-auto mt-8">
-      <button
-        onClick={handleVerify}
-        disabled={verifying}
-        className="px-6 py-3 text-lg font-semibold text-white bg-blue-500 rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed mb-8 w-64"
-      >
-        {verifying ? "..." : "Transact using passkey"}
-      </button>
+      <AccountRecovery
+        smartWalletAddress={smartWalletAddress}
+        account={account}
+        isDelegateDisrupted={isDelegateDisrupted}
+        isImplementationDisrupted={isImplementationDisrupted}
+        isOwnershipDisrupted={isOwnershipDisrupted}
+        onRecoveryComplete={onRecoveryComplete}
+        onStateChange={onStateChange}
+        onPasskeyStored={onPasskeyStored}
+      />
 
-      <div className="w-full space-y-4">
-        {steps.map((step, index) => (
-          <StepDisplay key={index} step={step} />
-        ))}
-      </div>
+      {!isDisrupted && (
+        <div className="flex flex-col items-center w-full mt-8">
+          <button
+            onClick={handleVerify}
+            disabled={verifying}
+            className="px-6 py-3 text-lg font-semibold text-white bg-blue-500 rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed mb-8 w-64"
+          >
+            {verifying ? "..." : "Transact using passkey"}
+          </button>
 
-      {isVerified && steps.every((step) => step.isComplete && !step.error) && (
-        <div className="mt-8 text-center text-green-500 font-semibold text-lg">
-          ✅ Successfully submitted a userOp with passkey owner!
-          <div className="mt-4 text-base text-gray-400">
-            You can submit another transaction using the button above.
+          <div className="w-full space-y-4">
+            {steps.map((step, index) => (
+              <StepDisplay key={index} step={step} />
+            ))}
           </div>
+
+          {isVerified && steps.every((step) => step.isComplete && !step.error) && (
+            <div className="mt-8 text-center text-green-500 font-semibold text-lg">
+              ✅ Successfully submitted a userOp with passkey owner!
+              <div className="mt-4 text-base text-gray-400">
+                You can submit another transaction using the button above.
+              </div>
+            </div>
+          )}
         </div>
       )}
-
-      <RecoveryModal
-        isOpen={showRecoveryModal}
-        onClose={() => setShowRecoveryModal(false)}
-        onRecover={handleRecover}
-        delegateIssue={isDelegateDisrupted}
-        implementationIssue={isImplementationDisrupted}
-        ownershipDisrupted={isOwnershipDisrupted}
-      />
     </div>
   );
 }
+
