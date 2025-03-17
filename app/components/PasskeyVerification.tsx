@@ -8,7 +8,7 @@ import {
   createWebAuthnCredential,
 } from "viem/account-abstraction";
 import { odysseyTestnet } from "../lib/chains";
-import { createSetImplementationHash, type ExtendedAccount, createEOAClient, signSetImplementation, encodeInitializeArgs, encodeUseNonce } from "../lib/wallet-utils";
+import { createSetImplementationHash, type ExtendedAccount, createEOAClient, signSetImplementation, encodeInitializeArgs } from "../lib/wallet-utils";
 import { serializeBigInts } from "../lib/relayer-utils";
 import { RecoveryModal } from "./RecoveryModal";
 import { EIP7702PROXY_TEMPLATE_ADDRESS, CBSW_IMPLEMENTATION_ADDRESS } from "../lib/constants";
@@ -328,7 +328,7 @@ export function PasskeyVerification({
           }
 
           updateStep(steps.length - 1, {
-            status: "✓ Passkey ownership verified",
+            status: "Passkey ownership verified",
             isComplete: true,
           });
         }
@@ -342,6 +342,7 @@ export function PasskeyVerification({
 
       // ********************* Delegate and implementation recovery ********************* 
       else if (isDelegateDisrupted && isImplementationDisrupted) {
+        const recoveryStepIndex = steps.length;
         addStep({
           status: "Resetting both delegate and implementation...",
           isComplete: false,
@@ -360,7 +361,6 @@ export function PasskeyVerification({
 
         // If ownership is disrupted, include initialization data with the new passkey
         const initArgs = prepareInitializationData(recoveryPasskey);
-        // const initArgs = "0x"; // try empty calldata for upgradeToAndCall
         const setImplementationHash = createSetImplementationHash(
           EIP7702PROXY_TEMPLATE_ADDRESS,
           CBSW_IMPLEMENTATION_ADDRESS,
@@ -391,7 +391,7 @@ export function PasskeyVerification({
         }
 
         const { hash } = await response.json();
-        updateStep(steps.length - 2, {
+        updateStep(recoveryStepIndex, {
           status: "Waiting for reset transaction...",
           isComplete: false,
           txHash: hash,
@@ -399,20 +399,56 @@ export function PasskeyVerification({
 
         await waitForTransaction(hash, chain);
         await checkState();
-        updateStep(steps.length - 2, {
+        updateStep(recoveryStepIndex, {
           status: "Successfully reset delegate and implementation" + (isOwnershipDisrupted ? " and restored ownership" : ""),
           isComplete: true,
           txHash: hash,
         });
+
+        // If we restored ownership, verify the passkey
+        if (isOwnershipDisrupted && recoveryPasskey) {
+          const verifyStepIndex = steps.length;
+          addStep({
+            status: "Verifying passkey ownership...",
+            isComplete: false,
+          });
+
+          const isOwner = await verifyPasskeyOwnership(publicClient, smartWalletAddress, recoveryPasskey);
+
+          if (!isOwner) {
+            throw new Error("Passkey verification failed: not registered as an owner");
+          }
+
+          updateStep(verifyStepIndex, {
+            status: "Passkey ownership verified",
+            isComplete: true,
+          });
+        }
       }
 
       onRecoveryComplete();
       setShowRecoveryModal(false);
       
+      // Do a final state check to ensure UI is up to date
+      console.log("Performing final state check after recovery...");
+      await checkState();
+      
+      // Add final success step
       addStep({
         status: "Account recovered successfully",
         isComplete: true,
       });
+
+      // Mark all incomplete steps as complete
+      setSteps(current => 
+        current.map(step => ({
+          ...step,
+          isComplete: true,
+          status: step.status.startsWith("Waiting") ? 
+            step.status.replace("Waiting", "Completed") : 
+            step.status
+        }))
+      );
     } catch (error) {
       console.error("Recovery error:", error);
       

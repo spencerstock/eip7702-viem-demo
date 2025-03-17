@@ -53,7 +53,7 @@ export function RecoveryModal({
           Your account is in an inconsistent state where {renderIssues()}. 
           {ownershipDisrupted && (
             <span className="block mt-2">
-              The ownership state will be restored using your original passkey.
+              You will need to create a new passkey to restore account access.
             </span>
           )}
         </p>

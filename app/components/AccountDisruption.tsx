@@ -50,7 +50,7 @@ export function AccountDisruption({
     };
 
     checkDelegateState();
-  }, []); // Run once on mount
+  }, [account.address, currentSlotValue]); // Re-run when address or currentSlotValue changes
 
   useEffect(() => {
     const checkImplementationState = async () => {
@@ -64,7 +64,23 @@ export function AccountDisruption({
     };
 
     checkImplementationState();
-  }, []); // Run once on mount
+  }, [account.address, currentBytecode, nextOwnerIndex]); // Re-run when address, bytecode, or nextOwnerIndex changes
+
+  // Add a new effect to update local state when props change
+  useEffect(() => {
+    const updateLocalState = async () => {
+      const publicClient = createPublicClient({
+        chain: odysseyTestnet,
+        transport: http(),
+      });
+
+      const state = await checkContractState(publicClient, account.address);
+      setIsDelegateDisrupted(state.isDelegateDisrupted);
+      setNextOwnerIndex(state.nextOwnerIndex);
+    };
+
+    updateLocalState();
+  }, [currentBytecode, currentSlotValue, account.address]); // Re-run when any of these props change
 
   // Function to check all relevant account states after disruption
   const checkState = async () => {
@@ -312,7 +328,7 @@ export function AccountDisruption({
             disabled={delegateLoading || !currentBytecode || !isCorrectBytecode(currentBytecode)}
             className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 disabled:opacity-50"
           >
-            {delegateLoading ? "Delegating..." : "7702-Delegate to Storage Eraser"}
+            {delegateLoading ? "Delegating..." : isDelegateDisrupted ? "Delegate is Foreign" : "7702-Delegate to Storage Eraser"}
           </button>
 
           <button
@@ -320,18 +336,23 @@ export function AccountDisruption({
             disabled={implementationLoading || (!!currentSlotValue && currentSlotValue.toLowerCase() !== CBSW_IMPLEMENTATION_ADDRESS.toLowerCase())}
             className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 disabled:opacity-50"
           >
-            {implementationLoading ? "Setting..." : "Set Foreign ERC-1967 Implementation"}
+            {implementationLoading ? "Setting..." : (!!currentSlotValue && currentSlotValue.toLowerCase() !== CBSW_IMPLEMENTATION_ADDRESS.toLowerCase()) ? "Implementation is Foreign" : "Set Foreign ERC-1967 Implementation"}
           </button>
 
-          {isDelegateDisrupted && (
+          <div className="relative group">
             <button
               onClick={handleEraseStorage}
-              disabled={ownershipLoading || nextOwnerIndex === BigInt(0)}
+              disabled={ownershipLoading || nextOwnerIndex === BigInt(0) || !isDelegateDisrupted}
               className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 disabled:opacity-50"
             >
               {ownershipLoading ? "Erasing..." : nextOwnerIndex === BigInt(0) ? "Storage Erased" : "Erase Owner Storage"}
             </button>
-          )}
+            {!isDelegateDisrupted && (
+              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-700 text-white text-sm rounded shadow-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+                Only possible after 7702-delegation to storage eraser contract
+              </div>
+            )}
+          </div>
         </div>
 
         <AccountState 
