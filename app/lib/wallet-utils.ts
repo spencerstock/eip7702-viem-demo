@@ -115,7 +115,7 @@ export function createSetImplementationHash(
     ],
     [
       typeHash,
-      allowCrossChainReplay ? BigInt(0) : chainId,
+      chainId,
       proxyAddr,
       nonce,
       currentImplementation,

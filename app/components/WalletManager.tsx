@@ -118,13 +118,13 @@ export function WalletManager({
       });
       onPasskeyStored(passkey);
 
-      // Create initialization args with both relayer and passkey as owners
+      // Create initialization args with both passkey and relayer as owners
       // We include the relayer as owner only for the purposes of this demo, which allows the relayer
       // to retrieve their entrypoint deposit while serving as a lightweight bundler.
       setStatus("Preparing initialization data and signature...");
       const initArgs = encodeInitializeArgs([
-        (process.env.NEXT_PUBLIC_RELAYER_ADDRESS as Hex),
         passkey,
+        (process.env.NEXT_PUBLIC_RELAYER_ADDRESS as Hex),
       ]);
       const nonce = await getNonceFromTracker(publicClient, account.address);
       const chainId = odysseyTestnet.id;

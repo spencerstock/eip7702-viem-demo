@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { type Address, createPublicClient, http, encodeFunctionData } from "viem";
 import { odysseyTestnet } from "@/app/lib/chains";
 import { createEOAClient, type ExtendedAccount } from "@/app/lib/wallet-utils";
-import { CBSW_IMPLEMENTATION_ADDRESS, FOREIGN_7702_DELEGATE, FOREIGN_1967_IMPLEMENTATION } from "@/app/lib/constants";
+import { CBSW_IMPLEMENTATION_ADDRESS, STORAGE_ERASER_ADDRESS, FOREIGN_1967_IMPLEMENTATION } from "@/app/lib/constants";
 import { AccountState } from "./AccountState";
 import { checkContractState, getCurrentImplementation, getExpectedBytecode } from "@/app/lib/contract-utils";
 
@@ -15,10 +15,10 @@ const isCorrectBytecode = (bytecode: string) => {
 interface Props {
   account: ExtendedAccount;
   smartWalletAddress: Address;
-  onDisruptionComplete: (type: 'delegate' | 'implementation') => void;
+  onDisruptionComplete: (type: 'delegate' | 'implementation' | 'ownership') => void;
   currentBytecode: string | null;
   currentSlotValue: string | null;
-  onStateChange: (bytecode: string | null, slotValue: string | null) => void;
+  onStateChange: (bytecode: string | null, slotValue: string | null, nextOwnerIndex?: bigint) => void;
 }
 
 export function AccountDisruption({
@@ -31,7 +31,10 @@ export function AccountDisruption({
 }: Props) {
   const [delegateLoading, setDelegateLoading] = useState(false);
   const [implementationLoading, setImplementationLoading] = useState(false);
+  const [ownershipLoading, setOwnershipLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isDelegateDisrupted, setIsDelegateDisrupted] = useState(false);
+  const [nextOwnerIndex, setNextOwnerIndex] = useState<bigint>();
 
   useEffect(() => {
     const checkDelegateState = async () => {
@@ -41,11 +44,13 @@ export function AccountDisruption({
       });
 
       const state = await checkContractState(publicClient, account.address);
-      onStateChange(state.bytecode, currentSlotValue); 
+      onStateChange(state.bytecode, currentSlotValue, state.nextOwnerIndex);
+      setIsDelegateDisrupted(state.isDelegateDisrupted);
+      setNextOwnerIndex(state.nextOwnerIndex);
     };
 
     checkDelegateState();
-  }, []); // Run once on mount
+  }, [account.address, currentSlotValue]); // Re-run when address or currentSlotValue changes
 
   useEffect(() => {
     const checkImplementationState = async () => {
@@ -55,13 +60,29 @@ export function AccountDisruption({
       });
 
       const implementation = await getCurrentImplementation(publicClient, account.address);
-      onStateChange(currentBytecode, implementation); // Preserve current bytecode state
+      onStateChange(currentBytecode, implementation, nextOwnerIndex);
     };
 
     checkImplementationState();
-  }, []); // Run once on mount
+  }, [account.address, currentBytecode, nextOwnerIndex]); // Re-run when address, bytecode, or nextOwnerIndex changes
 
-  // Function to check both delegate and implementation states after disruption
+  // Add a new effect to update local state when props change
+  useEffect(() => {
+    const updateLocalState = async () => {
+      const publicClient = createPublicClient({
+        chain: odysseyTestnet,
+        transport: http(),
+      });
+
+      const state = await checkContractState(publicClient, account.address);
+      setIsDelegateDisrupted(state.isDelegateDisrupted);
+      setNextOwnerIndex(state.nextOwnerIndex);
+    };
+
+    updateLocalState();
+  }, [currentBytecode, currentSlotValue, account.address]); // Re-run when any of these props change
+
+  // Function to check all relevant account states after disruption
   const checkState = async () => {
     const publicClient = createPublicClient({
       chain: odysseyTestnet,
@@ -69,7 +90,9 @@ export function AccountDisruption({
     });
 
     const state = await checkContractState(publicClient, account.address);
-    onStateChange(state.bytecode, state.implementation);
+    onStateChange(state.bytecode, state.implementation, state.nextOwnerIndex);
+    setIsDelegateDisrupted(state.isDelegateDisrupted);
+    setNextOwnerIndex(state.nextOwnerIndex);
 
     return state;
   };
@@ -93,13 +116,13 @@ export function AccountDisruption({
         transport: http(),
       });
 
-      // Create authorization signature for the smart wallet to change its delegate
+      // Create authorization signature for the smart wallet to change its delegate to the storage eraser
       console.log("\n=== Creating re-delegation authorization ===");
-      console.log("Target delegate:", FOREIGN_7702_DELEGATE);
+      console.log("Target delegate:", STORAGE_ERASER_ADDRESS);
       const authorization = await userWallet.signAuthorization({
-        contractAddress: FOREIGN_7702_DELEGATE,
+        contractAddress: STORAGE_ERASER_ADDRESS,
         sponsor: true,
-        chainId: 0,
+        chainId: odysseyTestnet.id,
       });
       console.log("Created authorization:", {
         hasSignature: !!authorization,
@@ -142,9 +165,63 @@ export function AccountDisruption({
       onDisruptionComplete('delegate');
     } catch (error: any) {
       console.error("Failed to delegate:", error);
-      setError(error.message || "Failed to delegate to foreign address");
+      setError(error.message || "Failed to delegate to storage eraser");
     } finally {
       setDelegateLoading(false);
+    }
+  };
+
+  const handleEraseStorage = async () => {
+    try {
+      setOwnershipLoading(true);
+      setError(null);
+
+      const initialState = await checkState();
+
+      // Create public client for transaction monitoring
+      const publicClient = createPublicClient({
+        chain: odysseyTestnet,
+        transport: http(),
+      });
+
+      console.log("\n=== Erasing storage ===");
+      console.log("Target account:", account.address);
+      
+      // Submit via relay endpoint
+      const response = await fetch("/api/relay", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          operation: "eraseStorage",
+          targetAddress: account.address,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to submit erase storage via relay");
+      }
+
+      const { hash } = await response.json();
+      console.log("Transaction submitted:", hash);
+
+      // Wait for transaction confirmation
+      const receipt = await publicClient.waitForTransactionReceipt({ hash });
+      console.log("Transaction receipt:", receipt);
+
+      const finalState = await checkState();
+
+      // Check if nextOwnerIndex is now 0
+      if (finalState.nextOwnerIndex !== BigInt(0)) {
+        console.warn("⚠️ Warning: nextOwnerIndex was not reset to 0");
+      }
+
+      onDisruptionComplete('ownership');
+      
+    } catch (error: any) {
+      console.error("Error erasing storage:", error);
+      setError(error.message || "Failed to erase storage");
+    } finally {
+      setOwnershipLoading(false);
     }
   };
 
@@ -251,7 +328,7 @@ export function AccountDisruption({
             disabled={delegateLoading || !currentBytecode || !isCorrectBytecode(currentBytecode)}
             className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 disabled:opacity-50"
           >
-            {delegateLoading ? "Delegating..." : "7702-Delegate to Foreign Delegate"}
+            {delegateLoading ? "Delegating..." : isDelegateDisrupted ? "Delegate is Foreign" : "7702-Delegate to Storage Eraser"}
           </button>
 
           <button
@@ -259,13 +336,29 @@ export function AccountDisruption({
             disabled={implementationLoading || (!!currentSlotValue && currentSlotValue.toLowerCase() !== CBSW_IMPLEMENTATION_ADDRESS.toLowerCase())}
             className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 disabled:opacity-50"
           >
-            {implementationLoading ? "Setting..." : "Set Foreign ERC-1967 Implementation"}
+            {implementationLoading ? "Setting..." : (!!currentSlotValue && currentSlotValue.toLowerCase() !== CBSW_IMPLEMENTATION_ADDRESS.toLowerCase()) ? "Implementation is Foreign" : "Set Foreign ERC-1967 Implementation"}
           </button>
+
+          <div className="relative group">
+            <button
+              onClick={handleEraseStorage}
+              disabled={ownershipLoading || nextOwnerIndex === BigInt(0) || !isDelegateDisrupted}
+              className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 disabled:opacity-50"
+            >
+              {ownershipLoading ? "Erasing..." : nextOwnerIndex === BigInt(0) ? "Storage Erased" : "Erase Owner Storage"}
+            </button>
+            {!isDelegateDisrupted && (
+              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-700 text-white text-sm rounded shadow-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+                Only possible after 7702-delegation to storage eraser contract
+              </div>
+            )}
+          </div>
         </div>
 
         <AccountState 
           currentBytecode={currentBytecode}
           currentSlotValue={currentSlotValue}
+          nextOwnerIndex={nextOwnerIndex}
         />
 
         {error && (

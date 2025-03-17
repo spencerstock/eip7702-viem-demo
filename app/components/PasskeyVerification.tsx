@@ -1,5 +1,5 @@
-import { useState, useCallback } from "react";
-import { type Address, type Hash, createPublicClient, http } from "viem";
+import { useState, useCallback, useEffect } from "react";
+import { type Address, type Hash, type Hex, createPublicClient, http } from "viem";
 import {
   type P256Credential,
   toWebAuthnAccount,
@@ -7,11 +7,10 @@ import {
   type UserOperation,
 } from "viem/account-abstraction";
 import { odysseyTestnet } from "../lib/chains";
-import { createSetImplementationHash, type ExtendedAccount, createEOAClient, signSetImplementation } from "../lib/wallet-utils";
 import { serializeBigInts } from "../lib/relayer-utils";
-import { RecoveryModal } from "./RecoveryModal";
-import { EIP7702PROXY_TEMPLATE_ADDRESS, CBSW_IMPLEMENTATION_ADDRESS } from "../lib/constants";
-import { getNonceFromTracker, checkContractState, checkAccountBalances, getCurrentImplementation } from "../lib/contract-utils";
+import { type ExtendedAccount } from "../lib/wallet-utils";
+import { checkAccountBalances, verifyPasskeyOwnership } from "../lib/contract-utils";
+import { AccountRecovery } from "./AccountRecovery";
 
 type VerificationStep = {
   status: string;
@@ -27,8 +26,10 @@ type Props = {
   account: ExtendedAccount;
   isDelegateDisrupted: boolean;
   isImplementationDisrupted: boolean;
+  isOwnershipDisrupted: boolean;
   onRecoveryComplete: () => void;
-  onStateChange: (bytecode: string | null, slotValue: string | null) => void;
+  onStateChange: (bytecode: string | null, slotValue: string | null, nextOwnerIndex?: bigint) => void;
+  onPasskeyStored: (passkey: P256Credential) => void;
 };
 
 const waitForTransaction = async (
@@ -42,11 +43,7 @@ const waitForTransaction = async (
   await publicClient.waitForTransactionReceipt({ hash });
 };
 
-function TransactionLink({
-  hash,
-}: {
-  hash: Hash;
-}) {
+function TransactionLink({ hash }: { hash: Hash }) {
   return (
     <a
       href={`${odysseyTestnet.blockExplorers.default.url}/tx/${hash}`}
@@ -59,11 +56,7 @@ function TransactionLink({
   );
 }
 
-function StepDisplay({
-  step,
-}: {
-  step: VerificationStep;
-}) {
+function StepDisplay({ step }: { step: VerificationStep }) {
   return (
     <div className="mb-4 p-4 bg-gray-800 rounded-lg w-full max-w-5xl mx-auto">
       <div className="flex items-center gap-2">
@@ -107,251 +100,27 @@ export function PasskeyVerification({
   account,
   isDelegateDisrupted,
   isImplementationDisrupted,
+  isOwnershipDisrupted,
   onRecoveryComplete,
   onStateChange,
+  onPasskeyStored,
 }: Props) {
   const [verifying, setVerifying] = useState(false);
   const [steps, setSteps] = useState<VerificationStep[]>([]);
   const [isVerified, setIsVerified] = useState(false);
-  const [showRecoveryModal, setShowRecoveryModal] = useState(false);
   const chain = odysseyTestnet;
 
-
-  // This function is called when the user clicks the "Restore Account" button
-  // Handles the logic for recovering the account from a delegate or implementation disruption,
-  // or both.
-  const handleRecover = async () => {
-    try {
-      setVerifying(true);
+  // Reset verification state when component becomes visible again after disruption
+  const isDisrupted = isDelegateDisrupted || isImplementationDisrupted || isOwnershipDisrupted;
+  useEffect(() => {
+    if (!isDisrupted) {
       setSteps([]);
       setIsVerified(false);
-      addStep({
-        status: "Starting account recovery...",
-        isComplete: false,
-      });
-
-      const userWallet = createEOAClient(account);
-      const publicClient = createPublicClient({
-        chain,
-        transport: http(),
-      });
-
-      updateStep(0, {
-        status: "Account recovery initialized",
-        isComplete: true,
-      });
-
-      if (isDelegateDisrupted && !isImplementationDisrupted) {
-        addStep({
-          status: "Resetting delegate...",
-          isComplete: false,
-        });
-
-        const authorization = await userWallet.signAuthorization({
-          contractAddress: EIP7702PROXY_TEMPLATE_ADDRESS,
-          sponsor: true,
-          chainId: 0,
-        });
-
-        const response = await fetch("/api/relay", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            operation: "submit7702Auth",
-            targetAddress: smartWalletAddress,
-            authorizationList: [authorization],
-          }, (_, value) => 
-            typeof value === "bigint" ? value.toString() : value
-          ),
-        });
-
-        if (!response.ok) {
-          throw new Error("Failed to reset delegate");
-        }
-
-        const { hash } = await response.json();
-        updateStep(1, {
-          status: "Waiting for delegate reset transaction...",
-          isComplete: false,
-          txHash: hash,
-        });
-
-        await waitForTransaction(hash, chain);
-        await checkState();
-        updateStep(1, {
-          status: "Successfully reset delegate",
-          isComplete: true,
-          txHash: hash,
-        });
-      }
-
-      else if (!isDelegateDisrupted && isImplementationDisrupted) {
-        addStep({
-          status: "Resetting implementation to correct version...",
-          isComplete: false,
-        });
-
-        const currentImplementation = await getCurrentImplementation(publicClient, smartWalletAddress);
-        const nonce = await getNonceFromTracker(publicClient, smartWalletAddress);
-        const chainId = odysseyTestnet.id;
-
-        const setImplementationHash = createSetImplementationHash(
-          EIP7702PROXY_TEMPLATE_ADDRESS,
-          CBSW_IMPLEMENTATION_ADDRESS,
-          "0x",
-          nonce,
-          currentImplementation,
-          false,
-          BigInt(chainId)
-        );
-
-        const signature = await signSetImplementation(userWallet, setImplementationHash);
-
-        updateStep(1, {
-          status: "Preparing implementation reset transaction...",
-          isComplete: true,
-        });
-
-        const response = await fetch("/api/relay", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            operation: "setImplementation",
-            targetAddress: smartWalletAddress,
-            signature,
-          }, (_, value) => 
-            typeof value === "bigint" ? value.toString() : value
-          ),
-        });
-
-        if (!response.ok) {
-          throw new Error("Failed to reset implementation");
-        }
-
-        const { hash } = await response.json();
-        updateStep(1, {
-          status: "Waiting for implementation reset transaction...",
-          isComplete: false,
-          txHash: hash,
-        });
-
-        await waitForTransaction(hash, chain);
-        await checkState();
-        updateStep(1, {
-          status: "Successfully reset implementation",
-          isComplete: true,
-          txHash: hash,
-        });
-      }
-
-      else if (isDelegateDisrupted && isImplementationDisrupted) {
-        addStep({
-          status: "Resetting both delegate and implementation...",
-          isComplete: false,
-        });
-
-        const authorization = await userWallet.signAuthorization({
-          contractAddress: EIP7702PROXY_TEMPLATE_ADDRESS,
-          sponsor: true,
-          chainId: 0,
-        });
-
-        const currentImplementation = await getCurrentImplementation(publicClient, smartWalletAddress);
-        const nonce = await getNonceFromTracker(publicClient, smartWalletAddress);
-        const chainId = odysseyTestnet.id;
-        
-        const setImplementationHash = createSetImplementationHash(
-          EIP7702PROXY_TEMPLATE_ADDRESS,
-          CBSW_IMPLEMENTATION_ADDRESS,
-          "0x", // No initialization needed for reset
-          nonce,
-          currentImplementation,
-          false,
-          BigInt(chainId)
-        );
-
-        const signature = await signSetImplementation(userWallet, setImplementationHash);
-
-        const response = await fetch("/api/relay", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            operation: "upgradeEOA",
-            targetAddress: smartWalletAddress,
-            initArgs: "0x",
-            signature,
-            authorizationList: [authorization],
-          }, (_, value) => 
-            typeof value === "bigint" ? value.toString() : value
-          ),
-        });
-
-        if (!response.ok) {
-          throw new Error("Failed to reset delegate and implementation");
-        }
-
-        const { hash } = await response.json();
-        updateStep(1, {
-          status: "Waiting for reset transaction...",
-          isComplete: false,
-          txHash: hash,
-        });
-
-        await waitForTransaction(hash, chain);
-        await checkState();
-        updateStep(1, {
-          status: "Successfully reset delegate and implementation",
-          isComplete: true,
-          txHash: hash,
-        });
-      }
-
-      onRecoveryComplete();
-      setShowRecoveryModal(false);
-      
-      addStep({
-        status: "Account recovered successfully",
-        isComplete: true,
-      });
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
-      addStep({
-        status: "Recovery failed",
-        isComplete: true,
-        error: errorMessage,
-      });
-    } finally {
       setVerifying(false);
     }
-  };
-
-  const updateStep = (index: number, updates: Partial<VerificationStep>) => {
-    setSteps((current) =>
-      current.map((step, i) => (i === index ? { ...step, ...updates } : step))
-    );
-  };
-
-  const addStep = (step: VerificationStep) => {
-    setSteps((current) => [...current, step]);
-  };
-
-  const checkState = async () => {
-    const publicClient = createPublicClient({
-      chain: odysseyTestnet,
-      transport: http(),
-    });
-
-    const state = await checkContractState(publicClient, smartWalletAddress);
-    onStateChange(state.bytecode, state.implementation);
-  };
+  }, [isDisrupted]);
 
   const handleVerify = useCallback(async () => {
-    if (isDelegateDisrupted || isImplementationDisrupted) {
-      setShowRecoveryModal(true);
-      return;
-    }
-
     try {
       setVerifying(true);
       setSteps([]);
@@ -365,6 +134,48 @@ export function PasskeyVerification({
         chain,
         transport: http(),
       });
+
+      // Verify passkey ownership before proceeding
+      console.log("Verifying passkey ownership...");
+      const isOwner = await verifyPasskeyOwnership(publicClient, smartWalletAddress, passkey);
+      console.log("Is passkey an owner?", isOwner);
+      if (!isOwner) {
+        throw new Error("This passkey is not registered as an owner of this wallet");
+      }
+
+      // For this demo, we know the passkey is always at index 0
+      const ourOwnerIndex = 0;
+      console.log("Using owner index:", ourOwnerIndex);
+
+      // Verify the owner at this index matches our passkey
+      console.log("Verifying owner at index matches our passkey...");
+      const ownerAtIndex = await publicClient.readContract({
+        address: smartWalletAddress,
+        abi: [{
+          type: "function",
+          name: "ownerAtIndex",
+          inputs: [{ type: "uint256", name: "index" }],
+          outputs: [{ type: "bytes", name: "" }],
+          stateMutability: "view",
+        }],
+        functionName: "ownerAtIndex",
+        args: [BigInt(ourOwnerIndex)],
+      });
+      console.log("Owner bytes at index:", ownerAtIndex);
+
+      // Convert our passkey's public key to the expected format
+      // The passkey public key is already in uncompressed format: 04 | x | y
+      // We need to remove the '0x' prefix from our passkey's public key
+      const ourPasskeyBytes = `0x${passkey.publicKey.slice(2)}` as Hex;
+      console.log("Our passkey bytes:", ourPasskeyBytes);
+
+      // Compare the owner at index with our passkey
+      const ownerMatches = ownerAtIndex === ourPasskeyBytes;
+      console.log("Owner at index matches our passkey?", ownerMatches);
+
+      if (!ownerMatches) {
+        throw new Error("Owner index mismatch - the passkey is not at index 0");
+      }
 
       addStep({
         status: "Checking account balances...",
@@ -445,24 +256,6 @@ export function PasskeyVerification({
         status: "Creating and signing userOp to transfer 1 wei to relayer...",
         isComplete: false,
       });
-
-      console.log("Getting owner index...");
-      const nextOwnerIndex = await publicClient.readContract({
-        address: smartWalletAddress,
-        abi: [
-          {
-            type: "function",
-            name: "nextOwnerIndex",
-            inputs: [],
-            outputs: [{ type: "uint256", name: "" }],
-            stateMutability: "view",
-          },
-        ],
-        functionName: "nextOwnerIndex",
-      });
-
-      const ourOwnerIndex = Number(nextOwnerIndex - BigInt(1));
-      console.log("Using owner index:", ourOwnerIndex);
 
       console.log("Creating smart account client...");
       const smartAccount = await toCoinbaseSmartAccount({
@@ -596,41 +389,58 @@ export function PasskeyVerification({
     } finally {
       setVerifying(false);
     }
-  }, [smartWalletAddress, passkey, chain, isDelegateDisrupted, isImplementationDisrupted]);
+  }, [smartWalletAddress, passkey, chain]);
 
+  const updateStep = (index: number, updates: Partial<VerificationStep>) => {
+    setSteps((current) =>
+      current.map((step, i) => (i === index ? { ...step, ...updates } : step))
+    );
+  };
+
+  const addStep = (step: VerificationStep) => {
+    setSteps((current) => [...current, step]);
+  };
 
   return (
     <div className="flex flex-col items-center w-full max-w-5xl mx-auto mt-8">
-      <button
-        onClick={handleVerify}
-        disabled={verifying}
-        className="px-6 py-3 text-lg font-semibold text-white bg-blue-500 rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed mb-8 w-64"
-      >
-        {verifying ? "..." : "Transact using passkey"}
-      </button>
+      <AccountRecovery
+        smartWalletAddress={smartWalletAddress}
+        account={account}
+        isDelegateDisrupted={isDelegateDisrupted}
+        isImplementationDisrupted={isImplementationDisrupted}
+        isOwnershipDisrupted={isOwnershipDisrupted}
+        onRecoveryComplete={onRecoveryComplete}
+        onStateChange={onStateChange}
+        onPasskeyStored={onPasskeyStored}
+      />
 
-      <div className="w-full space-y-4">
-        {steps.map((step, index) => (
-          <StepDisplay key={index} step={step} />
-        ))}
-      </div>
+      {!isDisrupted && (
+        <div className="flex flex-col items-center w-full mt-8">
+          <button
+            onClick={handleVerify}
+            disabled={verifying}
+            className="px-6 py-3 text-lg font-semibold text-white bg-blue-500 rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed mb-8 w-64"
+          >
+            {verifying ? "..." : "Transact using passkey"}
+          </button>
 
-      {isVerified && steps.every((step) => step.isComplete && !step.error) && (
-        <div className="mt-8 text-center text-green-500 font-semibold text-lg">
-          ✅ Successfully submitted a userOp with passkey owner!
-          <div className="mt-4 text-base text-gray-400">
-            You can submit another transaction using the button above.
+          <div className="w-full space-y-4">
+            {steps.map((step, index) => (
+              <StepDisplay key={index} step={step} />
+            ))}
           </div>
+
+          {isVerified && steps.every((step) => step.isComplete && !step.error) && (
+            <div className="mt-8 text-center text-green-500 font-semibold text-lg">
+              ✅ Successfully submitted a userOp with passkey owner!
+              <div className="mt-4 text-base text-gray-400">
+                You can submit another transaction using the button above.
+              </div>
+            </div>
+          )}
         </div>
       )}
-
-      <RecoveryModal
-        isOpen={showRecoveryModal}
-        onClose={() => setShowRecoveryModal(false)}
-        onRecover={handleRecover}
-        delegateIssue={isDelegateDisrupted}
-        implementationIssue={isImplementationDisrupted}
-      />
     </div>
   );
 }
+

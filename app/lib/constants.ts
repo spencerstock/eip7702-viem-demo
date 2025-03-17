@@ -9,16 +9,16 @@ export const EIP7702PROXY_TEMPLATE_ADDRESS = "0xcA271A94dd66982180960B579de6B321
 export const NONCE_TRACKER_ADDRESS = "0x1e3C75E11F8c31ffe8BA28A648B1D58566df6d72" as const;
 
 // Validator contract address, validates CBSW_IMPLEMENTATION_ADDRESS
-export const VALIDATOR_ADDRESS = "0xA96fc9fA032e5f58E225D979f985D51BCb671eF8" as const;
+export const VALIDATOR_ADDRESS = "0xA96fc9fA032e5f58E225D979f985D51BCb671eF8" as const; // REAL CBSW VALIDATOR
 
 // CoinbaseSmartWallet implementation address
 export const CBSW_IMPLEMENTATION_ADDRESS = "0x3e0BecB45eBf7Bd1e3943b9521264Bc5B0bd8Ca9" as const;
-  
-// The old version of the EIP7702Proxy, doesn't matter what this address is
-export const FOREIGN_7702_DELEGATE = "0x5ee57314eFc8D76B9084BC6759A2152084392e18" as const;
 
 // A mock UUPSUpgradeable implementation
 export const FOREIGN_1967_IMPLEMENTATION = "0xbAaaB2feecd974717816FA5ac540D96ad12eb342" as const;
+
+// MultiOwnableStorageEraser has function that can erase nextOwnerIndex storage slot
+export const STORAGE_ERASER_ADDRESS = "0xadC0e11403eB0802aeF8B64d510e88b084e55aF2" as const;
 
 // Standard EntryPoint address (same across networks)
 export const ENTRYPOINT_ADDRESS =
@@ -35,6 +35,9 @@ export const IMPLEMENTATION_SET_TYPEHASH = "EIP7702ProxyImplementationSet(uint25
 
 // ERC1967 implementation slot storage location
 export const ERC1967_IMPLEMENTATION_SLOT = "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc" as const;
+
+// Next owner index storage slot (keccak256("nextOwnerIndex"))
+export const NEXT_OWNER_INDEX_SLOT = "0x97e2c6aad4ce5d562ebfaa00db6b9e0fb66ea5d8162ed5b243f51a2e03086f00" as const;
 
 // EIP-7702 magic prefix
 export const MAGIC_PREFIX = "0xef0100" as const;
