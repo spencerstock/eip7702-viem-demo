@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { type Address, type Hash, createPublicClient, http } from "viem";
 import { type P256Credential, createWebAuthnCredential } from "viem/account-abstraction";
 import { odysseyTestnet } from "../lib/chains";
@@ -85,6 +85,8 @@ export function AccountRecovery({
   const isDisrupted = isDelegateDisrupted || isImplementationDisrupted || isOwnershipDisrupted;
 
   // Helper function to prepare initialization data for recovery
+  // If ownership is not disrupted, we don't need to prepare any calldata for `setImplementation`
+  // If ownership is disrupted, we need to prepare `initialize` calldata with the new passkey to pass through to `upgradeToAndCall`
   const prepareInitializationData = (recoveryPasskey?: P256Credential) => {
     if (!isOwnershipDisrupted || !recoveryPasskey) return "0x" as const;
     return encodeInitializeArgs([recoveryPasskey]);
