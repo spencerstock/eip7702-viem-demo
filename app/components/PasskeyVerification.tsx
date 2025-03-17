@@ -508,6 +508,48 @@ export function PasskeyVerification({
         transport: http(),
       });
 
+      // Verify passkey ownership before proceeding
+      console.log("Verifying passkey ownership...");
+      const isOwner = await verifyPasskeyOwnership(publicClient, smartWalletAddress, passkey);
+      console.log("Is passkey an owner?", isOwner);
+      if (!isOwner) {
+        throw new Error("This passkey is not registered as an owner of this wallet");
+      }
+
+      // For this demo, we know the passkey is always at index 0
+      const ourOwnerIndex = 0;
+      console.log("Using owner index:", ourOwnerIndex);
+
+      // Verify the owner at this index matches our passkey
+      console.log("Verifying owner at index matches our passkey...");
+      const ownerAtIndex = await publicClient.readContract({
+        address: smartWalletAddress,
+        abi: [{
+          type: "function",
+          name: "ownerAtIndex",
+          inputs: [{ type: "uint256", name: "index" }],
+          outputs: [{ type: "bytes", name: "" }],
+          stateMutability: "view",
+        }],
+        functionName: "ownerAtIndex",
+        args: [BigInt(ourOwnerIndex)],
+      });
+      console.log("Owner bytes at index:", ownerAtIndex);
+
+      // Convert our passkey's public key to the expected format
+      // The passkey public key is already in uncompressed format: 04 | x | y
+      // We need to remove the '0x' prefix from our passkey's public key
+      const ourPasskeyBytes = `0x${passkey.publicKey.slice(2)}` as Hex;
+      console.log("Our passkey bytes:", ourPasskeyBytes);
+
+      // Compare the owner at index with our passkey
+      const ownerMatches = ownerAtIndex === ourPasskeyBytes;
+      console.log("Owner at index matches our passkey?", ownerMatches);
+
+      if (!ownerMatches) {
+        throw new Error("Owner index mismatch - the passkey is not at index 0");
+      }
+
       addStep({
         status: "Checking account balances...",
         isComplete: false,
@@ -587,25 +629,6 @@ export function PasskeyVerification({
         status: "Creating and signing userOp to transfer 1 wei to relayer...",
         isComplete: false,
       });
-
-      console.log("Getting owner index...");
-      const nextOwnerIndex = await publicClient.readContract({
-        address: smartWalletAddress,
-        abi: [
-          {
-            type: "function",
-            name: "nextOwnerIndex",
-            inputs: [],
-            outputs: [{ type: "uint256", name: "" }],
-            stateMutability: "view",
-          },
-        ],
-        functionName: "nextOwnerIndex",
-      });
-
-      // TODO let's tighten up the way this is retrieved and get it onchain?
-      const ourOwnerIndex = Number(nextOwnerIndex - BigInt(1));
-      console.log("Using owner index:", ourOwnerIndex);
 
       console.log("Creating smart account client...");
       const smartAccount = await toCoinbaseSmartAccount({
