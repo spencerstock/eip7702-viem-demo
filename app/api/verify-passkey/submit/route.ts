@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { type Hash, createWalletClient, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { odysseyTestnet } from "../../../lib/chains";
+import { baseSepolia } from "../../../lib/chains";
 import { ENTRYPOINT_ADDRESS } from "../../../lib/constants";
 import { ENTRYPOINT_ABI } from "../../../lib/abi/EntryPoint";
 
@@ -15,7 +15,7 @@ export async function POST(request: Request) {
     );
     const walletClient = createWalletClient({
       account: relayerAccount,
-      chain: odysseyTestnet,
+      chain: baseSepolia,
       transport: http(),
     });
 

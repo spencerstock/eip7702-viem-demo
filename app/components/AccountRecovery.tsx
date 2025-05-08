@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { type Address, type Hash, createPublicClient, http } from "viem";
 import { type P256Credential, createWebAuthnCredential } from "viem/account-abstraction";
-import { odysseyTestnet } from "../lib/chains";
+import { baseSepolia } from "../lib/chains";
 import { createSetImplementationHash, type ExtendedAccount, createEOAClient, signSetImplementation, encodeInitializeArgs } from "../lib/wallet-utils";
 import { EIP7702PROXY_TEMPLATE_ADDRESS, CBSW_IMPLEMENTATION_ADDRESS } from "../lib/constants";
 import { getNonceFromTracker, checkContractState, getCurrentImplementation, verifyPasskeyOwnership } from "../lib/contract-utils";
@@ -28,7 +28,7 @@ type Props = {
 function TransactionLink({ hash }: { hash: Hash }) {
   return (
     <a
-      href={`${odysseyTestnet.blockExplorers.default.url}/tx/${hash}`}
+      href={`${baseSepolia.blockExplorers.default.url}/tx/${hash}`}
       target="_blank"
       rel="noopener noreferrer"
       className="text-blue-400 hover:text-blue-300 underline font-mono"
@@ -111,7 +111,7 @@ export function AccountRecovery({
 
       const userWallet = createEOAClient(account);
       const publicClient = createPublicClient({
-        chain: odysseyTestnet,
+        chain: baseSepolia,
         transport: http(),
       });
 
@@ -132,7 +132,7 @@ export function AccountRecovery({
         // Delegate-only recovery
         const authorization = await userWallet.signAuthorization({
           contractAddress: EIP7702PROXY_TEMPLATE_ADDRESS,
-          chainId: odysseyTestnet.id,
+          chainId: baseSepolia.id,
         });
 
         const response = await fetch("/api/relay", {
@@ -168,7 +168,7 @@ export function AccountRecovery({
           nonce,
           currentImplementation,
           false,
-          BigInt(odysseyTestnet.id)
+          BigInt(baseSepolia.id)
         );
 
         const signature = await signSetImplementation(userWallet, setImplementationHash);
@@ -197,7 +197,7 @@ export function AccountRecovery({
         // Combined recovery
         const authorization = await userWallet.signAuthorization({
           contractAddress: EIP7702PROXY_TEMPLATE_ADDRESS,
-          chainId: odysseyTestnet.id,
+          chainId: baseSepolia.id,
         });
 
         const currentImplementation = await getCurrentImplementation(publicClient, smartWalletAddress);
@@ -211,7 +211,7 @@ export function AccountRecovery({
           nonce,
           currentImplementation,
           false,
-          BigInt(odysseyTestnet.id)
+          BigInt(baseSepolia.id)
         );
 
         const signature = await signSetImplementation(userWallet, setImplementationHash);

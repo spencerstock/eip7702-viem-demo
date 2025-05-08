@@ -10,7 +10,7 @@ import {
 import { privateKeyToAccount } from "viem/accounts";
 import { secp256k1 } from "@noble/curves/secp256k1";
 import { hexToBytes } from "@noble/curves/abstract/utils";
-import { odysseyTestnet } from "./chains";
+import { baseSepolia } from "./chains";
 import { 
   IMPLEMENTATION_SET_TYPEHASH, 
   VALIDATOR_ADDRESS,
@@ -26,7 +26,7 @@ export function createEOAClient(account: ExtendedAccount) {
   // Create the wallet client with the extended account to get access to private key
   return createWalletClient({
     account,
-    chain: odysseyTestnet,
+    chain: baseSepolia,
     transport: http(),
   });
 }

@@ -6,7 +6,7 @@ import {
   encodeFunctionData,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { odysseyTestnet } from "./chains";
+import { baseSepolia } from "./chains";
 import { ENTRYPOINT_ADDRESS } from "./constants";
 import { ENTRYPOINT_ABI } from "./abi/EntryPoint";
 
@@ -25,7 +25,7 @@ export async function withdrawEntryPointDeposit({
   }
 
   const publicClient = createPublicClient({
-    chain: odysseyTestnet,
+    chain: baseSepolia,
     transport: http(),
   });
 
@@ -90,7 +90,7 @@ export async function withdrawEntryPointDeposit({
 
     const walletClient = createWalletClient({
       account: relayer,
-      chain: odysseyTestnet,
+      chain: baseSepolia,
       transport: http(),
     });
 
