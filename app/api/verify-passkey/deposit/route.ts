@@ -15,7 +15,7 @@ export async function POST(request: Request) {
     );
     const walletClient = createWalletClient({
       account: relayerAccount,
-      chain:  baseSepolia,
+      chain: baseSepolia,
       transport: http(),
     });
 

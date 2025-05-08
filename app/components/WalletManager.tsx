@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { createPublicClient, http, type Hex } from "viem";
+import { createPublicClient, http, maxUint256, type Hex } from "viem";
 import {
   createEOAWallet,
   createEOAClient,
@@ -137,7 +137,8 @@ export function WalletManager({
         nonce,
         ZERO_ADDRESS,
         false,
-        BigInt(chainId)
+        BigInt(chainId),
+        BigInt(maxUint256)
       );
 
       // Sign the hash

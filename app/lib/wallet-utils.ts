@@ -90,7 +90,8 @@ export function createSetImplementationHash(
   nonce: bigint,
   currentImplementation: Hex,
   allowCrossChainReplay: boolean,
-  chainId: bigint
+  chainId: bigint,
+  expiry: bigint,
 ): Hex {
   // First hash the calldata
   const callDataHash = keccak256(callData);
@@ -111,6 +112,7 @@ export function createSetImplementationHash(
       { type: "address" },  // newImplementation
       { type: "bytes32" },  // keccak256(callData)
       { type: "address" },  // validator
+      { type: "uint256" },  // expiry
     ],
     [
       typeHash,
@@ -121,6 +123,7 @@ export function createSetImplementationHash(
       newImplementation,
       callDataHash,
       VALIDATOR_ADDRESS,
+      expiry,
     ]
   );
 

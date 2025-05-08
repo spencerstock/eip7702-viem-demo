@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { type Address, type Hash, createPublicClient, http } from "viem";
+import { type Address, type Hash, createPublicClient, http, maxUint256 } from "viem";
 import { type P256Credential, createWebAuthnCredential } from "viem/account-abstraction";
 import { baseSepolia } from "../lib/chains";
 import { createSetImplementationHash, type ExtendedAccount, createEOAClient, signSetImplementation, encodeInitializeArgs } from "../lib/wallet-utils";
@@ -168,7 +168,8 @@ export function AccountRecovery({
           nonce,
           currentImplementation,
           false,
-          BigInt(baseSepolia.id)
+          BigInt(baseSepolia.id),
+          BigInt(maxUint256)
         );
 
         const signature = await signSetImplementation(userWallet, setImplementationHash);
@@ -211,7 +212,8 @@ export function AccountRecovery({
           nonce,
           currentImplementation,
           false,
-          BigInt(baseSepolia.id)
+          BigInt(baseSepolia.id),
+          BigInt(maxUint256)
         );
 
         const signature = await signSetImplementation(userWallet, setImplementationHash);

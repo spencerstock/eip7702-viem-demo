@@ -30,7 +30,7 @@ export const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000" as cons
 // *************** Contract constants ***************
 
 // Implementation set typehash
-export const IMPLEMENTATION_SET_TYPEHASH = "EIP7702ProxyImplementationSet(uint256 chainId,address proxy,uint256 nonce,address currentImplementation,address newImplementation,bytes callData,address validator)" as const;
+export const IMPLEMENTATION_SET_TYPEHASH = "EIP7702ProxyImplementationSet(uint256 chainId,address proxy,uint256 nonce,address currentImplementation,address newImplementation,bytes callData,address validator,uint256 expiry)" as const;
 
 // ERC1967 implementation slot storage location
 export const ERC1967_IMPLEMENTATION_SLOT = "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc" as const;
