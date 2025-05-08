@@ -6,7 +6,7 @@ import {
   toCoinbaseSmartAccount,
   type UserOperation,
 } from "viem/account-abstraction";
-import { odysseyTestnet } from "../lib/chains";
+import { baseSepolia } from "../lib/chains";
 import { serializeBigInts } from "../lib/relayer-utils";
 import { type ExtendedAccount } from "../lib/wallet-utils";
 import { checkAccountBalances, verifyPasskeyOwnership } from "../lib/contract-utils";
@@ -34,7 +34,7 @@ type Props = {
 
 const waitForTransaction = async (
   hash: Hash,
-  chain: typeof odysseyTestnet
+  chain: typeof baseSepolia
 ) => {
   const publicClient = createPublicClient({
     chain,
@@ -46,7 +46,7 @@ const waitForTransaction = async (
 function TransactionLink({ hash }: { hash: Hash }) {
   return (
     <a
-      href={`${odysseyTestnet.blockExplorers.default.url}/tx/${hash}`}
+      href={`${baseSepolia.blockExplorers.default.url}/tx/${hash}`}
       target="_blank"
       rel="noopener noreferrer"
       className="text-blue-400 hover:text-blue-300 underline font-mono"
@@ -108,7 +108,7 @@ export function PasskeyVerification({
   const [verifying, setVerifying] = useState(false);
   const [steps, setSteps] = useState<VerificationStep[]>([]);
   const [isVerified, setIsVerified] = useState(false);
-  const chain = odysseyTestnet;
+  const chain = baseSepolia;
 
   // Reset verification state when component becomes visible again after disruption
   const isDisrupted = isDelegateDisrupted || isImplementationDisrupted || isOwnershipDisrupted;
@@ -284,11 +284,11 @@ export function PasskeyVerification({
         nonce,
         initCode: "0x" as const,
         callData,
-        callGasLimit: BigInt(500000),
-        verificationGasLimit: BigInt(500000),
-        preVerificationGas: BigInt(100000),
-        maxFeePerGas: BigInt(3000000000),
-        maxPriorityFeePerGas: BigInt(2000000000),
+        callGasLimit: BigInt(1000000),
+        verificationGasLimit: BigInt(1000000),
+        preVerificationGas: BigInt(200000),
+        maxFeePerGas: BigInt(20000000000),
+        maxPriorityFeePerGas: BigInt(1000000000),
         paymasterAndData: "0x" as const,
         signature: "0x" as const,
       } as const;

@@ -48,6 +48,7 @@ export const EIP7702ProxyAbi = [
       },
       { "name": "callData", "type": "bytes", "internalType": "bytes" },
       { "name": "validator", "type": "address", "internalType": "address" },
+      { "name": "expiry", "type": "uint256", "internalType": "uint256" },
       { "name": "signature", "type": "bytes", "internalType": "bytes" },
       {
         "name": "allowCrossChainReplay",
@@ -106,5 +107,6 @@ export const EIP7702ProxyAbi = [
   { "type": "error", "name": "FailedCall", "inputs": [] },
   { "type": "error", "name": "InvalidSignature", "inputs": [] },
   { "type": "error", "name": "InvalidValidation", "inputs": [] },
+  { "type": "error", "name": "SignatureExpired", "inputs": [] },
   { "type": "error", "name": "ZeroAddress", "inputs": [] }
 ] as const satisfies Abi;

@@ -6,9 +6,9 @@ A simple demo application showcasing EIP-7702 wallet creation and upgrades using
 
 - Node.js and npm installed
 
-## Testing with Odyssey Testnet
+## Testing with Base Sepolia 
 
-The Odyssey testnet already has the necessary contracts deployed. You'll just need to:
+Base Sepolia has all contracts deployed. You'll just need to:
 
 1. Clone and install the repository:
 
@@ -32,7 +32,7 @@ RELAYER_PRIVATE_KEY=your_private_key_here
 NEXT_PUBLIC_RELAYER_ADDRESS=your_public_address_here
 ```
 
-3. Fund your relayer wallet with some [Odyssey testnet](https://hub.conduit.xyz/odyssey) ETH. Sepolia bridge [here](https://odyssey-fba0638ec5f46615.testnets.rollbridge.app/).
+3. Fund your relayer wallet with some Base Sepolia ETH (at least .1)
 
 4. Start the development server:
 
@@ -68,11 +68,11 @@ After creating a new wallet and upgrading via 7702, you can simulate the possibl
 
 ## Network Details
 
-### Odyssey Testnet
+### Base Sepolia Testnet
 
-- RPC URL: https://odyssey.ithaca.xyz
-- Chain ID: 911867
-- Block Explorer: https://odyssey-explorer.ithaca.xyz
+- RPC URL: https://sepolia.base.org
+- Chain ID: 84532
+- Block Explorer: https://sepolia.basescan.org
 
 
 ## Project Structure

@@ -1,8 +1,8 @@
 import { Chain } from "viem";
 
-export const odysseyTestnet = {
-  id: 911867,
-  name: "Odyssey Testnet",
+export const baseSepolia = {
+  id: 84532,
+  name: "Base Sepolia",
   nativeCurrency: {
     decimals: 18,
     name: "ETH",
@@ -10,16 +10,16 @@ export const odysseyTestnet = {
   },
   rpcUrls: {
     default: {
-      http: [process.env.ODYSSEY_RPC_URL ?? "https://odyssey.ithaca.xyz"],
+      http: [process.env.BASE_SEPOLIA_RPC ?? "https://sepolia.base.org"],
     },
     public: {
-      http: [process.env.ODYSSEY_RPC_URL ?? "https://odyssey.ithaca.xyz"],
+      http: [process.env.BASE_SEPOLIA_RPC ?? "https://sepolia.base.org"],
     },
   },
   blockExplorers: {
     default: {
-      name: "Explorer",
-      url: "https://odyssey-explorer.ithaca.xyz",
+      name: "BaseScan",
+      url: "https://sepolia.basescan.org",
     },
   },
   contracts: {

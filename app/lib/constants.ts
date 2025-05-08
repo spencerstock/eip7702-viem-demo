@@ -1,37 +1,36 @@
-import { type Address } from "viem";
-
 // *************** Contract addresses ***************
 
 // EIP7702Proxy
-export const EIP7702PROXY_TEMPLATE_ADDRESS = "0xcA271A94dd66982180960B579de6B3213084D67A" as const;
+export const EIP7702PROXY_TEMPLATE_ADDRESS = "0x7702cb554e6bFb442cb743A7dF23154544a7176C" as const;
 
 // NonceTracker used by EIP7702Proxy
-export const NONCE_TRACKER_ADDRESS = "0x1e3C75E11F8c31ffe8BA28A648B1D58566df6d72" as const;
+export const NONCE_TRACKER_ADDRESS = "0xD0Ff13c28679FDd75Bc09c0a430a0089bf8b95a8" as const;
+
+// DefaultReceiver
+export const DEFAULT_RECEIVER_ADDRESS = "0x2a8010A9D71D2a5AEA19D040F8b4797789A194a9" as const;
 
 // Validator contract address, validates CBSW_IMPLEMENTATION_ADDRESS
-export const VALIDATOR_ADDRESS = "0xA96fc9fA032e5f58E225D979f985D51BCb671eF8" as const; // REAL CBSW VALIDATOR
+export const VALIDATOR_ADDRESS = "0x79A33f950b90C7d07E66950daedf868BD0cDcF96" as const;
 
 // CoinbaseSmartWallet implementation address
-export const CBSW_IMPLEMENTATION_ADDRESS = "0x3e0BecB45eBf7Bd1e3943b9521264Bc5B0bd8Ca9" as const;
+export const CBSW_IMPLEMENTATION_ADDRESS = "0x000100abaad02f1cfC8Bbe32bD5a564817339E72" as const;
 
 // A mock UUPSUpgradeable implementation
-export const FOREIGN_1967_IMPLEMENTATION = "0xbAaaB2feecd974717816FA5ac540D96ad12eb342" as const;
+export const FOREIGN_1967_IMPLEMENTATION = "0x011056384Cb0C3F6B999A65d9f664a835961FFe3" as const;
 
 // MultiOwnableStorageEraser has function that can erase nextOwnerIndex storage slot
-export const STORAGE_ERASER_ADDRESS = "0xadC0e11403eB0802aeF8B64d510e88b084e55aF2" as const;
+export const STORAGE_ERASER_ADDRESS = "0xf88cBE56c3b636747AD8FF21890A6B96954eE5E8" as const;
 
 // Standard EntryPoint address (same across networks)
-export const ENTRYPOINT_ADDRESS =
-  "0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789" as const;
+export const ENTRYPOINT_ADDRESS = "0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789" as const;
 
-  // Zero address
+// Zero address
 export const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000" as const;
-
 
 // *************** Contract constants ***************
 
 // Implementation set typehash
-export const IMPLEMENTATION_SET_TYPEHASH = "EIP7702ProxyImplementationSet(uint256 chainId,address proxy,uint256 nonce,address currentImplementation,address newImplementation,bytes callData,address validator)" as const;
+export const IMPLEMENTATION_SET_TYPEHASH = "EIP7702ProxyImplementationSet(uint256 chainId,address proxy,uint256 nonce,address currentImplementation,address newImplementation,bytes callData,address validator,uint256 expiry)" as const;
 
 // ERC1967 implementation slot storage location
 export const ERC1967_IMPLEMENTATION_SLOT = "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc" as const;

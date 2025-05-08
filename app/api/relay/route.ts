@@ -1,6 +1,6 @@
 import { privateKeyToAccount } from "viem/accounts";
-import { createWalletClient, http, type Hex, encodeFunctionData } from "viem";
-import { odysseyTestnet } from "@/app/lib/chains";
+import { createWalletClient, http, type Hex, encodeFunctionData, maxUint256 } from "viem";
+import { baseSepolia } from "@/app/lib/chains";
 import { CBSW_IMPLEMENTATION_ADDRESS, VALIDATOR_ADDRESS } from "../../lib/constants";
 import { MULTI_OWNABLE_STORAGE_ERASER_ABI } from "../../lib/abi/MultiOwnableStorageEraser";
 
@@ -30,7 +30,7 @@ if (
 
 const relayerWallet = createWalletClient({
   account: relayerAccount,
-  chain: odysseyTestnet,
+  chain: baseSepolia,
   transport: http(),
 });
 
@@ -39,6 +39,7 @@ const encodeSetImplementation = (
   newImplementation: Hex,
   callData: Hex,
   signature: Hex,
+  expiry: bigint,
   allowCrossChainReplay = false
 ) => {
   return encodeFunctionData({
@@ -49,6 +50,7 @@ const encodeSetImplementation = (
         { name: "newImplementation", type: "address" },
         { name: "callData", type: "bytes" },
         { name: "validator", type: "address" },
+        { name: "expiry", type: "uint256" },
         { name: "signature", type: "bytes" },
         { name: "allowCrossChainReplay", type: "bool" }
       ],
@@ -60,6 +62,7 @@ const encodeSetImplementation = (
       newImplementation,
       callData,
       VALIDATOR_ADDRESS,
+      expiry,
       signature,
       allowCrossChainReplay
     ]
@@ -135,7 +138,8 @@ export async function POST(request: Request) {
         const data = encodeSetImplementation(
           CBSW_IMPLEMENTATION_ADDRESS,
           initArgs,
-          signature
+          signature,
+          BigInt(maxUint256)
         );
         
         const hash = await submitTransaction(
@@ -166,6 +170,7 @@ export async function POST(request: Request) {
           CBSW_IMPLEMENTATION_ADDRESS,
           initArgs,
           signature,
+          BigInt(maxUint256),
           false
         );
         

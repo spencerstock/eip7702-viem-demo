@@ -1,21 +1,24 @@
 import { NextResponse } from "next/server";
-import { type Hash, createWalletClient, http } from "viem";
+import { type Hash, createPublicClient, createWalletClient, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { odysseyTestnet } from "../../../lib/chains";
+import { baseSepolia } from "../../../lib/chains";
 import { ENTRYPOINT_ADDRESS } from "../../../lib/constants";
 import { ENTRYPOINT_ABI } from "../../../lib/abi/EntryPoint";
 
 export async function POST(request: Request) {
   try {
     const { userOp } = await request.json();
-
+    const publicClient = createPublicClient({
+      chain: baseSepolia,
+      transport: http(),
+    });
     // Create wallet client for the relayer
     const relayerAccount = privateKeyToAccount(
       process.env.RELAYER_PRIVATE_KEY as `0x${string}`
     );
     const walletClient = createWalletClient({
       account: relayerAccount,
-      chain: odysseyTestnet,
+      chain: baseSepolia,
       transport: http(),
     });
 
@@ -27,12 +30,12 @@ export async function POST(request: Request) {
       args: [[userOp], relayerAccount.address],
     })) as Hash;
 
-    const userOpHash = (await walletClient.writeContract({
+    const userOpHash = await publicClient.readContract({
       address: ENTRYPOINT_ADDRESS,
       abi: ENTRYPOINT_ABI,
       functionName: "getUserOpHash",
       args: [userOp],
-    })) as Hash;
+    }) as Hash;
 
     return NextResponse.json({ txHash, userOpHash });
   } catch (error) {

@@ -10,7 +10,7 @@ import {
 import { privateKeyToAccount } from "viem/accounts";
 import { secp256k1 } from "@noble/curves/secp256k1";
 import { hexToBytes } from "@noble/curves/abstract/utils";
-import { odysseyTestnet } from "./chains";
+import { baseSepolia } from "./chains";
 import { 
   IMPLEMENTATION_SET_TYPEHASH, 
   VALIDATOR_ADDRESS,
@@ -26,7 +26,7 @@ export function createEOAClient(account: ExtendedAccount) {
   // Create the wallet client with the extended account to get access to private key
   return createWalletClient({
     account,
-    chain: odysseyTestnet,
+    chain: baseSepolia,
     transport: http(),
   });
 }
@@ -90,7 +90,8 @@ export function createSetImplementationHash(
   nonce: bigint,
   currentImplementation: Hex,
   allowCrossChainReplay: boolean,
-  chainId: bigint
+  chainId: bigint,
+  expiry: bigint,
 ): Hex {
   // First hash the calldata
   const callDataHash = keccak256(callData);
@@ -111,6 +112,7 @@ export function createSetImplementationHash(
       { type: "address" },  // newImplementation
       { type: "bytes32" },  // keccak256(callData)
       { type: "address" },  // validator
+      { type: "uint256" },  // expiry
     ],
     [
       typeHash,
@@ -121,6 +123,7 @@ export function createSetImplementationHash(
       newImplementation,
       callDataHash,
       VALIDATOR_ADDRESS,
+      expiry,
     ]
   );
 

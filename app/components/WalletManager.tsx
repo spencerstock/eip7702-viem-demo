@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { createPublicClient, http, type Hex } from "viem";
+import { createPublicClient, http, maxUint256, type Hex } from "viem";
 import {
   createEOAWallet,
   createEOAClient,
@@ -8,7 +8,7 @@ import {
   signSetImplementation,
   type ExtendedAccount,
 } from "../lib/wallet-utils";
-import { odysseyTestnet } from "../lib/chains";
+import { baseSepolia } from "../lib/chains";
 import {
   createWebAuthnCredential,
   type P256Credential,
@@ -47,7 +47,7 @@ function formatError(error: any): string {
 }
 
 function formatExplorerLink(hash: string, type: 'transaction' | 'address' = 'transaction'): string | null {
-  return `${odysseyTestnet.blockExplorers.default.url}/${type}/${hash}`;
+  return `${baseSepolia.blockExplorers.default.url}/${type}/${hash}`;
 }
 
 export function WalletManager({
@@ -107,7 +107,7 @@ export function WalletManager({
 
       // Create public client for reading state
       const publicClient = createPublicClient({
-        chain: odysseyTestnet,
+        chain: baseSepolia,
         transport: http(),
       });
 
@@ -127,7 +127,7 @@ export function WalletManager({
         (process.env.NEXT_PUBLIC_RELAYER_ADDRESS as Hex),
       ]);
       const nonce = await getNonceFromTracker(publicClient, account.address);
-      const chainId = odysseyTestnet.id;
+      const chainId = baseSepolia.id;
 
       // Create the setImplementationHash for the upgrade transaction
       const setImplementationHash = createSetImplementationHash(
@@ -137,7 +137,8 @@ export function WalletManager({
         nonce,
         ZERO_ADDRESS,
         false,
-        BigInt(chainId)
+        BigInt(chainId),
+        BigInt(maxUint256)
       );
 
       // Sign the hash
