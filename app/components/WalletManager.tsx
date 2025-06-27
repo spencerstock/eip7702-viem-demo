@@ -1,7 +1,6 @@
 import { useState, useEffect } from "react";
 import { createPublicClient, http, maxUint256, type Hex } from "viem";
 import {
-  createEOAWallet,
   createEOAClient,
   encodeInitializeArgs,
   createSetImplementationHash,
@@ -10,7 +9,6 @@ import {
 } from "../lib/wallet-utils";
 import { baseSepolia } from "../lib/chains";
 import {
-  createWebAuthnCredential,
   type P256Credential,
 } from "viem/account-abstraction";
 import {
@@ -30,9 +28,8 @@ import {
   generateMnemonicBridgeBitmask,
   storeMnemonicBridgeBitmask,
   storeOriginalMnemonic,
-  getOriginalMnemonic,
 } from "../lib/prf-mnemonic-utils";
-import { bytesToHex, hexToBytes } from "@noble/hashes/utils";
+// import { bytesToHex } from "@noble/hashes/utils"; // Removed unused import
 
 interface WalletManagerProps {
   onWalletCreated: (address: string, explorerLink: string | null) => void;
@@ -419,7 +416,7 @@ export function WalletManager({
         <div className="w-full p-4 bg-yellow-900 rounded">
           <p className="text-yellow-200 font-bold mb-2">⚠️ Save Your Recovery Phrase</p>
           <p className="text-sm font-mono bg-gray-800 p-3 rounded">{originalMnemonic}</p>
-          <p className="text-xs text-yellow-300 mt-2">Write this down and store it safely. You'll need it to recover your wallet.</p>
+          <p className="text-xs text-yellow-300 mt-2">Write this down and store it safely. You&apos;ll need it to recover your wallet.</p>
         </div>
       )}
 

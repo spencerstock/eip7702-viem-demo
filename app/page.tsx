@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { type ExtendedAccount } from "./lib/wallet-utils";
-import { type P256Credential, toWebAuthnAccount, toCoinbaseSmartAccount, type UserOperation } from "viem/account-abstraction";
+import { type P256Credential, toCoinbaseSmartAccount, type UserOperation } from "viem/account-abstraction";
 import { 
   generateMnemonic,
   validateMnemonic,
@@ -12,18 +12,15 @@ import {
   mnemonicToEntropy,
   generateMnemonicBridgeBitmask,
   storeMnemonicBridgeBitmask,
-  storeOriginalMnemonic,
-  getOriginalMnemonic,
-  getMnemonicBridgeBitmask,
   recoverOriginalMnemonic,
 } from "./lib/prf-mnemonic-utils";
 import { createWebAuthnCredentialWithPRF, authenticateWithPRF } from "./lib/webauthn-prf";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils";
 import { createEOAWalletFromMnemonic, createEOAClient, encodeInitializeArgs, createSetImplementationHash, signSetImplementation } from "./lib/wallet-utils";
-import { createPublicClient, http, maxUint256, type Hex, parseEther, encodeFunctionData } from "viem";
+import { createPublicClient, http, maxUint256, type Hex, parseEther } from "viem";
 import { baseSepolia } from "./lib/chains";
 import { CBSW_IMPLEMENTATION_ADDRESS, ZERO_ADDRESS, EIP7702PROXY_TEMPLATE_ADDRESS } from "./lib/constants";
-import { getNonceFromTracker, verifyPasskeyOwnership, checkContractState } from "./lib/contract-utils";
+import { getNonceFromTracker, checkContractState } from "./lib/contract-utils";
 import { formatGasEstimate, GAS_ASSUMPTIONS } from "./lib/gas-utils";
 
 export default function Home() {
@@ -536,7 +533,7 @@ export default function Home() {
       // Recover original mnemonic
       setRecoveryStatus("Recovering original mnemonic...");
       const prfEntropy = await mnemonicToEntropy(prfDerivedMnemonic);
-      const recovered = recoverOriginalMnemonic(prfEntropy, bitmaskBytes.buffer);
+      const recovered = recoverOriginalMnemonic(prfEntropy, bitmaskBytes.buffer as ArrayBuffer);
       
       setRecoveredMnemonic(recovered);
       setRecoveryStatus("✅ Mnemonic recovered successfully!");
@@ -631,7 +628,7 @@ export default function Home() {
                 <h3 className="font-bold text-green-400 mb-2">Generated Mnemonic:</h3>
                 <p className="font-mono text-sm">{generatedMnemonic}</p>
                 <p className="text-xs text-yellow-400 mt-3">
-                  ⚠️ Save this mnemonic securely. You'll need it to recover your wallet.
+                  ⚠️ Save this mnemonic securely. You&apos;ll need it to recover your wallet.
                 </p>
               </div>
             )}
@@ -894,7 +891,7 @@ export default function Home() {
                   <h3 className="font-bold text-green-400 mb-2">Bitmask (hex):</h3>
                   <p className="font-mono text-xs break-all">{bitmaskOutput}</p>
                   <p className="text-xs text-gray-500 mt-2">
-                    Save this bitmask - combined with your "{passkeyName}" passkey, it can recover your original mnemonic
+                    Save this bitmask - combined with your &quot;{passkeyName}&quot; passkey, it can recover your original mnemonic
                   </p>
                 </div>
               )}

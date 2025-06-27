@@ -1,4 +1,3 @@
-import { P256Credential } from "viem/account-abstraction";
 import * as bip39 from "bip39";
 import { sha256 } from "@noble/hashes/sha256";
 import { pbkdf2 } from "@noble/hashes/pbkdf2";
@@ -6,23 +5,10 @@ import { secp256k1 } from "@noble/curves/secp256k1";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils";
 
 // Type definitions for PRF extension
-interface PRFValues {
-  first: ArrayBuffer;
-  second?: ArrayBuffer;
-}
-
-interface PRFExtensionInput {
-  eval?: PRFValues;
-  evalByCredential?: Record<string, PRFValues>;
-}
-
-interface PRFExtensionOutput {
-  enabled?: boolean;
-  results?: {
-    first?: ArrayBuffer;
-    second?: ArrayBuffer;
-  };
-}
+// interface PRFValues {
+//   first: ArrayBuffer;
+//   second?: ArrayBuffer;
+// }
 
 // Constants
 const SALT_SUFFIX = ":Base-Wallet-Recovery";
@@ -77,7 +63,11 @@ export async function deriveKeypairFromMnemonic(
   console.log("[PRF-Mnemonic] Seed from mnemonic (hex):", bytesToHex(new Uint8Array(seed)));
   
   // Simple derivation for demo - in production, use proper HD derivation (BIP32)
-  const derivationData = new Uint8Array([...seed.slice(0, 32), ...new Uint8Array([0, 0, 0, index])]);
+  const seedBytes = new Uint8Array(seed.slice(0, 32));
+  const indexBytes = new Uint8Array([0, 0, 0, index]);
+  const derivationData = new Uint8Array(seedBytes.length + indexBytes.length);
+  derivationData.set(seedBytes, 0);
+  derivationData.set(indexBytes, seedBytes.length);
   const privateKeyBytes = sha256(derivationData);
   
   // Generate secp256k1 keypair
@@ -107,7 +97,9 @@ export function xorBuffers(a: ArrayBuffer, b: ArrayBuffer): ArrayBuffer {
     result[i] = (aBytes[i] || 0) ^ (bBytes[i] || 0);
   }
   
-  return result.buffer;
+  const buffer = new ArrayBuffer(result.length);
+  new Uint8Array(buffer).set(result);
+  return buffer;
 }
 
 /**
@@ -160,7 +152,9 @@ export function getRecoveryBitmask(passkeyId: string): ArrayBuffer | null {
   const bitmaskHex = localStorage.getItem(`prf-bitmask-${passkeyId}`);
   if (!bitmaskHex) return null;
   
-  const bitmask = hexToBytes(bitmaskHex).buffer;
+  const bytes = hexToBytes(bitmaskHex);
+  const bitmask = new ArrayBuffer(bytes.length);
+  new Uint8Array(bitmask).set(bytes);
   console.log(`[PRF-Mnemonic] Retrieved bitmask for passkey ${passkeyId}`);
   return bitmask;
 }
@@ -219,7 +213,9 @@ export async function mnemonicToEntropy(mnemonic: string): Promise<ArrayBuffer> 
     throw new Error("Only 12-word mnemonics are supported");
   }
   
-  return entropyBytes.buffer;
+  const buffer = new ArrayBuffer(entropyBytes.length);
+  new Uint8Array(buffer).set(entropyBytes);
+  return buffer;
 }
 
 /**
@@ -292,7 +288,9 @@ export function getMnemonicBridgeBitmask(passkeyId: string): ArrayBuffer | null 
   const bitmaskHex = localStorage.getItem(`mnemonic-bridge-bitmask-${passkeyId}`);
   if (!bitmaskHex) return null;
   
-  const bitmask = hexToBytes(bitmaskHex).buffer;
+  const bytes = hexToBytes(bitmaskHex);
+  const bitmask = new ArrayBuffer(bytes.length);
+  new Uint8Array(bitmask).set(bytes);
   console.log(`[PRF-Mnemonic] Retrieved mnemonic bridge bitmask for passkey ${passkeyId}`);
   return bitmask;
 }
