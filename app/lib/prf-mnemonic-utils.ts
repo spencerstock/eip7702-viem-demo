@@ -200,7 +200,8 @@ export function generateMnemonic(): string {
  * @returns true if valid
  */
 export function validateMnemonic(mnemonic: string): boolean {
-  return bip39.validateMnemonic(mnemonic);
+  // Trim whitespace and newlines before validation
+  return bip39.validateMnemonic(mnemonic.trim());
 }
 
 /**
@@ -209,7 +210,8 @@ export function validateMnemonic(mnemonic: string): boolean {
  * @returns 16-byte entropy
  */
 export async function mnemonicToEntropy(mnemonic: string): Promise<ArrayBuffer> {
-  const entropy = bip39.mnemonicToEntropy(mnemonic);
+  // Trim whitespace and newlines before processing
+  const entropy = bip39.mnemonicToEntropy(mnemonic.trim());
   const entropyBytes = hexToBytes(entropy);
   
   // We only support 12-word mnemonics (16 bytes)

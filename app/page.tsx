@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { type ExtendedAccount } from "./lib/wallet-utils";
-import { type P256Credential } from "viem/account-abstraction";
+import { type P256Credential, toWebAuthnAccount, toCoinbaseSmartAccount, type UserOperation } from "viem/account-abstraction";
 import { 
   generateMnemonic,
   validateMnemonic,
@@ -12,16 +12,19 @@ import {
   mnemonicToEntropy,
   generateMnemonicBridgeBitmask,
   storeMnemonicBridgeBitmask,
+  storeOriginalMnemonic,
+  getOriginalMnemonic,
   getMnemonicBridgeBitmask,
   recoverOriginalMnemonic,
 } from "./lib/prf-mnemonic-utils";
 import { createWebAuthnCredentialWithPRF, authenticateWithPRF } from "./lib/webauthn-prf";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils";
 import { createEOAWalletFromMnemonic, createEOAClient, encodeInitializeArgs, createSetImplementationHash, signSetImplementation } from "./lib/wallet-utils";
-import { createPublicClient, http, maxUint256, type Hex } from "viem";
+import { createPublicClient, http, maxUint256, type Hex, parseEther, encodeFunctionData } from "viem";
 import { baseSepolia } from "./lib/chains";
 import { CBSW_IMPLEMENTATION_ADDRESS, ZERO_ADDRESS, EIP7702PROXY_TEMPLATE_ADDRESS } from "./lib/constants";
 import { getNonceFromTracker, verifyPasskeyOwnership, checkContractState } from "./lib/contract-utils";
+import { formatGasEstimate, GAS_ASSUMPTIONS } from "./lib/gas-utils";
 
 export default function Home() {
   const [activeSection, setActiveSection] = useState<string>("generate");
@@ -35,6 +38,15 @@ export default function Home() {
   const [walletAddress, setWalletAddress] = useState<string>("");
   const [upgradeStatus, setUpgradeStatus] = useState<string>("");
   const [isUpgraded, setIsUpgraded] = useState(false);
+  
+  // Transaction signing states
+  const [txRecipient, setTxRecipient] = useState<string>("");
+  const [txValue, setTxValue] = useState<string>("0.0001");
+  const [eoaSignedTx, setEoaSignedTx] = useState<string>("");
+  const [eoaGasEstimate, setEoaGasEstimate] = useState<string>("");
+  const [userOp, setUserOp] = useState<string>("");
+  const [userOpGasEstimate, setUserOpGasEstimate] = useState<string>("");
+  const [signingStatus, setSigningStatus] = useState<string>("");
   
   // Section 3: Create PRF Passkey & Bitmask (Modified)
   const [bitmaskMnemonic, setBitmaskMnemonic] = useState<string>("");
@@ -59,7 +71,9 @@ export default function Home() {
 
   // Section 2: Upgrade Mnemonic to Smart Wallet
   const handleCreateWalletFromMnemonic = async () => {
-    if (!walletMnemonic || !validateMnemonic(walletMnemonic)) {
+    const trimmedMnemonic = walletMnemonic.trim();
+    
+    if (!trimmedMnemonic || !validateMnemonic(trimmedMnemonic)) {
       setUpgradeStatus("❌ Invalid mnemonic phrase");
       return;
     }
@@ -68,7 +82,7 @@ export default function Home() {
       setUpgradeStatus("Creating wallet from mnemonic...");
       
       // Derive keypair and create EOA
-      const keypair = await deriveKeypairFromMnemonic(walletMnemonic, 0);
+      const keypair = await deriveKeypairFromMnemonic(trimmedMnemonic, 0);
       const account = await createEOAWalletFromMnemonic(keypair.privateKey);
       
       setWalletAccount(account);
@@ -95,16 +109,22 @@ export default function Home() {
         transport: http(),
       });
       
-      // For this simplified version, we'll only add the relayer as owner
-      // The EOA itself will remain in control through EIP-7702
+      // Derive the EOA's public key from the mnemonic
+      setUpgradeStatus("Deriving EOA public key...");
+      const trimmedMnemonic = walletMnemonic.trim();
+      const keypair = await deriveKeypairFromMnemonic(trimmedMnemonic, 0);
+      const eoaPublicKey = keypair.publicKey;
+      
+      // For this version, we'll add both the EOA's public key and the relayer as owners
       const relayerAddress = process.env.NEXT_PUBLIC_RELAYER_ADDRESS;
       if (!relayerAddress) {
         throw new Error("NEXT_PUBLIC_RELAYER_ADDRESS not defined");
       }
       
-      // Initialize with just the relayer (no passkey)
+      // Initialize with EOA public key and relayer
       const initArgs = encodeInitializeArgs([
-        relayerAddress as Hex,
+        { publicKey: eoaPublicKey as Hex }, // EOA's secp256k1 public key
+        relayerAddress as Hex,               // Relayer address
       ]);
       
       const nonce = await getNonceFromTracker(publicClient, walletAccount.address);
@@ -172,15 +192,225 @@ export default function Home() {
       setUpgradeStatus(`✅ Successfully upgraded to smart wallet! 
         Address: ${walletAccount.address}
         Transaction: ${upgradeHash}
-        The EOA can now use smart wallet features while maintaining control through its private key.`);
+        The EOA can now sign UserOperations as a smart wallet owner using its secp256k1 key.`);
     } catch (error) {
       setUpgradeStatus(`❌ Error: ${error instanceof Error ? error.message : String(error)}`);
     }
   };
 
+  // Sign transaction as EOA (using mnemonic-derived private key)
+  const handleSignAsEOA = async () => {
+    if (!walletAccount || !txRecipient) {
+      setSigningStatus("❌ Please enter a recipient address");
+      return;
+    }
+
+    try {
+      setSigningStatus("Signing transaction as EOA...");
+      
+      const userWallet = createEOAClient(walletAccount);
+      const publicClient = createPublicClient({
+        chain: baseSepolia,
+        transport: http(),
+      });
+
+      // Parse the value in ETH to wei
+      const valueInWei = parseEther(txValue || "0");
+
+      // Prepare the transaction
+      const tx = {
+        to: txRecipient as `0x${string}`,
+        value: valueInWei,
+        data: "0x" as `0x${string}`,
+      };
+
+      // Estimate gas
+      const gasEstimate = await publicClient.estimateGas({
+        ...tx,
+        account: walletAccount.address,
+      });
+
+      // Get current gas prices
+      const { maxFeePerGas, maxPriorityFeePerGas } = await publicClient.estimateFeesPerGas();
+
+      // Build the complete transaction object
+      const fullTx = {
+        ...tx,
+        gas: gasEstimate,
+        maxFeePerGas: maxFeePerGas || BigInt(20000000000),
+        maxPriorityFeePerGas: maxPriorityFeePerGas || BigInt(1000000000),
+        nonce: await publicClient.getTransactionCount({ address: walletAccount.address }),
+        chainId: baseSepolia.id,
+      };
+
+      // Sign the transaction
+      const signedTx = await userWallet.signTransaction(fullTx);
+
+      // Store both the RLP-encoded version and the object representation
+      setEoaSignedTx(JSON.stringify({
+        rlpEncoded: signedTx,
+        decoded: {
+          from: walletAccount.address,
+          to: fullTx.to,
+          value: fullTx.value.toString(),
+          data: fullTx.data,
+          gas: fullTx.gas.toString(),
+          maxFeePerGas: fullTx.maxFeePerGas.toString(),
+          maxPriorityFeePerGas: fullTx.maxPriorityFeePerGas.toString(),
+          nonce: fullTx.nonce,
+          chainId: fullTx.chainId,
+        }
+      }));
+      
+      // Use fixed gas assumptions for display
+      setEoaGasEstimate(formatGasEstimate(gasEstimate, GAS_ASSUMPTIONS.gasPrice));
+      setSigningStatus("✅ Transaction signed as EOA");
+    } catch (error) {
+      setSigningStatus(`❌ Error: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+
+  // Sign UserOperation as 4337 Smart Account
+  const handleSignAsSmartAccount = async () => {
+    if (!walletAccount || !txRecipient || !isUpgraded) {
+      setSigningStatus("❌ Please upgrade to smart wallet and enter a recipient address");
+      return;
+    }
+
+    try {
+      setSigningStatus("Creating UserOperation as smart account...");
+      
+      const publicClient = createPublicClient({
+        chain: baseSepolia,
+        transport: http(),
+      });
+
+      // Create smart account client
+      // Since the EOA's public key was added as an owner during upgrade,
+      // we can use the EOA account directly to sign UserOperations
+      const smartAccount = await toCoinbaseSmartAccount({
+        client: publicClient,
+        owners: [walletAccount], // Use the EOA account directly
+        address: walletAccount.address,
+      });
+
+      // Parse the value in ETH to wei
+      const valueInWei = parseEther(txValue || "0");
+
+      // Encode the call
+      const callData = await smartAccount.encodeCalls([
+        {
+          to: txRecipient as `0x${string}`,
+          value: valueInWei,
+          data: "0x" as const,
+        },
+      ]);
+
+      // Get nonce
+      const nonce = await smartAccount.getNonce();
+
+      // Get current gas prices from the network
+      const { maxFeePerGas, maxPriorityFeePerGas } = await publicClient.estimateFeesPerGas();
+
+      // Estimate gas for the actual call
+      // This is a rough estimation - in production, you'd want to use the bundler's estimateUserOperationGas
+      let callGasEstimate: bigint;
+      try {
+        // Try to estimate gas for the actual transaction
+        callGasEstimate = await publicClient.estimateGas({
+          account: walletAccount.address,
+          to: txRecipient as `0x${string}`,
+          value: valueInWei,
+          data: "0x" as `0x${string}`,
+        });
+        // Add 20% buffer for smart contract overhead
+        callGasEstimate = (callGasEstimate * BigInt(120)) / BigInt(100);
+      } catch {
+        // Fallback to default if estimation fails
+        callGasEstimate = BigInt(100000);
+      }
+
+      // Gas limits with better defaults based on operation type
+      const gasLimits = {
+        callGasLimit: callGasEstimate < BigInt(50000) ? BigInt(50000) : callGasEstimate,
+        verificationGasLimit: BigInt(150000), // Typical for signature verification
+        preVerificationGas: BigInt(50000), // Typical bundler overhead
+      };
+
+      // Add buffer for safety
+      const totalGasLimit = gasLimits.callGasLimit + gasLimits.verificationGasLimit + gasLimits.preVerificationGas;
+      
+      setSigningStatus(`Estimated gas: ${totalGasLimit.toString()} units. Creating UserOperation...`);
+
+      // Prepare UserOperation
+      const unsignedUserOp = {
+        sender: smartAccount.address,
+        nonce,
+        initCode: "0x" as const,
+        callData,
+        callGasLimit: gasLimits.callGasLimit,
+        verificationGasLimit: gasLimits.verificationGasLimit,
+        preVerificationGas: gasLimits.preVerificationGas,
+        maxFeePerGas: maxFeePerGas || BigInt(20000000000),
+        maxPriorityFeePerGas: maxPriorityFeePerGas || BigInt(1000000000),
+        paymasterAndData: "0x" as const,
+        signature: "0x" as const,
+      } as const;
+
+      // Sign the UserOperation
+      const signature = await smartAccount.signUserOperation(unsignedUserOp);
+      const signedUserOp = { ...unsignedUserOp, signature } as UserOperation;
+
+      // Calculate total gas for UserOp
+      const totalGas = unsignedUserOp.callGasLimit + 
+                      unsignedUserOp.verificationGasLimit + 
+                      unsignedUserOp.preVerificationGas;
+
+      // Create a packed representation of the UserOp (similar to RLP for regular txs)
+      // This is a simplified packed format for display purposes
+      const packedUserOp = [
+        signedUserOp.sender,
+        '0x' + signedUserOp.nonce.toString(16).padStart(64, '0'),
+        signedUserOp.initCode,
+        signedUserOp.callData,
+        '0x' + signedUserOp.callGasLimit.toString(16).padStart(64, '0'),
+        '0x' + signedUserOp.verificationGasLimit.toString(16).padStart(64, '0'),
+        '0x' + signedUserOp.preVerificationGas.toString(16).padStart(64, '0'),
+        '0x' + signedUserOp.maxFeePerGas.toString(16).padStart(64, '0'),
+        '0x' + signedUserOp.maxPriorityFeePerGas.toString(16).padStart(64, '0'),
+        signedUserOp.paymasterAndData,
+        signedUserOp.signature
+      ].join('');
+
+      setUserOp(JSON.stringify({
+        packed: packedUserOp,
+        decoded: JSON.parse(JSON.stringify(signedUserOp, (_, value) => 
+          typeof value === "bigint" ? value.toString() : value
+        ))
+      }, null, 2));
+      
+      // Use fixed gas assumptions for display with breakdown
+      setUserOpGasEstimate(formatGasEstimate(
+        totalGas, 
+        GAS_ASSUMPTIONS.gasPrice,
+        {
+          call: unsignedUserOp.callGasLimit,
+          verification: unsignedUserOp.verificationGasLimit,
+          preVerification: unsignedUserOp.preVerificationGas,
+        }
+      ));
+      setSigningStatus("✅ UserOperation created and signed");
+    } catch (error) {
+      console.error("Error signing as smart account:", error);
+      setSigningStatus(`❌ Error: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+
   // Section 3: Create PRF Passkey & Bitmask
   const handleCreateBitmask = async () => {
-    if (!bitmaskMnemonic || !validateMnemonic(bitmaskMnemonic)) {
+    const trimmedMnemonic = bitmaskMnemonic.trim();
+    
+    if (!trimmedMnemonic || !validateMnemonic(trimmedMnemonic)) {
       setBitmaskStatus("❌ Invalid mnemonic phrase");
       return;
     }
@@ -236,7 +466,7 @@ export default function Home() {
       // Generate bitmask
       setBitmaskStatus("Generating bitmask...");
       
-      const originalEntropy = await mnemonicToEntropy(bitmaskMnemonic);
+      const originalEntropy = await mnemonicToEntropy(trimmedMnemonic);
       const prfEntropy = await mnemonicToEntropy(prfDerivedMnemonic);
       const bitmask = generateMnemonicBridgeBitmask(originalEntropy, prfEntropy);
       
@@ -275,7 +505,9 @@ export default function Home() {
   };
 
   const handleRecoverMnemonic = async () => {
-    if (!recoveryBitmask || !selectedPasskeyId) {
+    const trimmedBitmask = recoveryBitmask.trim();
+    
+    if (!trimmedBitmask || !selectedPasskeyId) {
       setRecoveryStatus("❌ Please select a passkey and provide a bitmask");
       return;
     }
@@ -299,7 +531,7 @@ export default function Home() {
       const prfDerivedMnemonic = await deriveMnemonicFromPRF(prfOutput);
       
       // Convert bitmask from hex
-      const bitmaskBytes = hexToBytes(recoveryBitmask);
+      const bitmaskBytes = hexToBytes(trimmedBitmask);
       
       // Recover original mnemonic
       setRecoveryStatus("Recovering original mnemonic...");
@@ -313,11 +545,25 @@ export default function Home() {
     }
   };
 
-  // Update section navigation to load passkeys when switching to recover
+  // Handle section changes
   const handleSectionChange = (sectionId: string) => {
     setActiveSection(sectionId);
+    
+    // Load passkeys when switching to recover
     if (sectionId === 'recover') {
       loadAvailablePasskeys();
+    }
+    
+    // Reset states when switching sections
+    if (sectionId !== "upgrade") {
+      // Reset transaction signing states
+      setTxRecipient("");
+      setTxValue("0.0001");
+      setEoaSignedTx("");
+      setEoaGasEstimate("");
+      setUserOp("");
+      setUserOpGasEstimate("");
+      setSigningStatus("");
     }
   };
 
@@ -445,6 +691,140 @@ export default function Home() {
               {upgradeStatus && (
                 <div className="bg-gray-800 p-4 rounded">
                   <p className="text-sm font-mono whitespace-pre-line">{upgradeStatus}</p>
+                </div>
+              )}
+
+              {/* Transaction Signing Section */}
+              {isUpgraded && (
+                <div className="mt-8 space-y-4">
+                  <h3 className="text-xl font-bold text-purple-400">Sign Transactions</h3>
+                  <p className="text-gray-400 text-sm">
+                    Sign a transaction as an EOA (using mnemonic) or as a 4337 smart account owner.
+                  </p>
+                  
+                  <div className="space-y-3">
+                    <input
+                      type="text"
+                      value={txRecipient}
+                      onChange={(e) => setTxRecipient(e.target.value)}
+                      placeholder="Recipient address (0x...)"
+                      className="w-full p-3 bg-gray-800 text-white rounded border border-gray-600 focus:border-blue-500 focus:outline-none"
+                    />
+                    
+                    <input
+                      type="text"
+                      value={txValue}
+                      onChange={(e) => setTxValue(e.target.value)}
+                      placeholder="Value in ETH (default: 0.0001)"
+                      className="w-full p-3 bg-gray-800 text-white rounded border border-gray-600 focus:border-blue-500 focus:outline-none"
+                    />
+                    
+                    <div className="flex gap-4">
+                      <button
+                        onClick={handleSignAsEOA}
+                        className="px-6 py-3 bg-green-500 text-white rounded hover:bg-green-600"
+                      >
+                        Sign as EOA
+                      </button>
+                      
+                      <button
+                        onClick={handleSignAsSmartAccount}
+                        className="px-6 py-3 bg-indigo-500 text-white rounded hover:bg-indigo-600"
+                      >
+                        Sign as Smart Account (4337)
+                      </button>
+                    </div>
+                    
+                    {signingStatus && (
+                      <div className="bg-gray-800 p-4 rounded">
+                        <p className="text-sm font-mono">{signingStatus}</p>
+                      </div>
+                    )}
+                    
+                    {/* EOA Signed Transaction */}
+                    {eoaSignedTx && (
+                      <div className="bg-gray-800 p-4 rounded">
+                        <h4 className="font-bold text-green-400 mb-2">EOA Signed Transaction:</h4>
+                        <p className="text-xs text-gray-400 mb-2">{eoaGasEstimate}</p>
+                        {(() => {
+                          try {
+                            const txData = JSON.parse(eoaSignedTx);
+                            return (
+                              <>
+                                <div className="mb-4">
+                                  <h5 className="text-sm font-semibold text-gray-300 mb-2">RLP Encoded (Raw):</h5>
+                                  <div className="bg-gray-900 p-3 rounded overflow-x-auto">
+                                    <pre className="text-xs font-mono text-gray-300 whitespace-pre-wrap break-all">
+                                      {txData.rlpEncoded}
+                                    </pre>
+                                  </div>
+                                </div>
+                                <div>
+                                  <h5 className="text-sm font-semibold text-gray-300 mb-2">Decoded Transaction:</h5>
+                                  <div className="bg-gray-900 p-3 rounded overflow-x-auto">
+                                    <pre className="text-xs font-mono text-gray-300">
+                                      {JSON.stringify(txData.decoded, null, 2)}
+                                    </pre>
+                                  </div>
+                                </div>
+                              </>
+                            );
+                          } catch {
+                            // Fallback for old format
+                            return (
+                              <div className="bg-gray-900 p-3 rounded overflow-x-auto">
+                                <pre className="text-xs font-mono text-gray-300 whitespace-pre-wrap break-all">
+                                  {eoaSignedTx}
+                                </pre>
+                              </div>
+                            );
+                          }
+                        })()}
+                      </div>
+                    )}
+                    
+                    {/* Smart Account UserOperation */}
+                    {userOp && (
+                      <div className="bg-gray-800 p-4 rounded">
+                        <h4 className="font-bold text-indigo-400 mb-2">Smart Account UserOperation:</h4>
+                        <p className="text-xs text-gray-400 mb-2">{userOpGasEstimate}</p>
+                        {(() => {
+                          try {
+                            const userOpData = JSON.parse(userOp);
+                            return (
+                              <>
+                                <div className="mb-4">
+                                  <h5 className="text-sm font-semibold text-gray-300 mb-2">Packed UserOp (Raw):</h5>
+                                  <div className="bg-gray-900 p-3 rounded overflow-x-auto">
+                                    <pre className="text-xs font-mono text-gray-300 whitespace-pre-wrap break-all">
+                                      {userOpData.packed}
+                                    </pre>
+                                  </div>
+                                </div>
+                                <div>
+                                  <h5 className="text-sm font-semibold text-gray-300 mb-2">Decoded UserOperation:</h5>
+                                  <div className="bg-gray-900 p-3 rounded overflow-x-auto max-h-96 overflow-y-auto">
+                                    <pre className="text-xs font-mono text-gray-300">
+                                      {JSON.stringify(userOpData.decoded, null, 2)}
+                                    </pre>
+                                  </div>
+                                </div>
+                              </>
+                            );
+                          } catch {
+                            // Fallback for old format
+                            return (
+                              <div className="bg-gray-900 p-3 rounded overflow-x-auto max-h-96 overflow-y-auto">
+                                <pre className="text-xs font-mono text-gray-300">
+                                  {userOp}
+                                </pre>
+                              </div>
+                            );
+                          }
+                        })()}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </div>

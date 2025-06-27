@@ -103,11 +103,14 @@ export function WalletManager({
       let mnemonic: string;
       
       if (showMnemonicInput && mnemonicInput) {
+        // Trim whitespace and newlines from user input
+        const trimmedInput = mnemonicInput.trim();
+        
         // Validate user input
-        if (!validateMnemonic(mnemonicInput)) {
+        if (!validateMnemonic(trimmedInput)) {
           throw new Error("Invalid mnemonic phrase. Please check and try again.");
         }
-        mnemonic = mnemonicInput;
+        mnemonic = trimmedInput;
         setStatus("Using provided mnemonic phrase...");
       } else {
         // Generate a new mnemonic
