@@ -11,7 +11,6 @@ import {
   getMnemonicBridgeBitmask,
   getOriginalMnemonic,
   generateMnemonic,
-  validateMnemonic,
 } from "../lib/prf-mnemonic-utils";
 import { bytesToHex } from "@noble/hashes/utils";
 
