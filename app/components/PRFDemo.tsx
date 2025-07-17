@@ -69,21 +69,21 @@ export function PRFDemo({ passkey }: PRFDemoProps) {
           const prfDerivedMnemonic = await deriveMnemonicFromPRF(prfData);
           setPrfMnemonic(prfDerivedMnemonic);
           
-          // Step 4: Generate bitmask
-          setStatus("Generating bridge bitmask...");
+          // Step 4: Generate encrypted ciphertext
+          setStatus("Generating encrypted bridge data...");
           const originalEntropy = await mnemonicToEntropy(original);
           const prfEntropy = await mnemonicToEntropy(prfDerivedMnemonic);
-          const bridgeBitmask = generateMnemonicBridgeBitmask(originalEntropy, prfEntropy);
-          const bitmaskHex = bytesToHex(new Uint8Array(bridgeBitmask));
-          setBitmask(bitmaskHex);
+          const ciphertext = await generateMnemonicBridgeBitmask(originalEntropy, prfEntropy);
+          const ciphertextHex = bytesToHex(new Uint8Array(ciphertext));
+          setBitmask(ciphertextHex);
           
           // Step 5: Test recovery
           setStatus("Testing recovery of original mnemonic...");
-          const recovered = recoverOriginalMnemonic(prfEntropy, bridgeBitmask);
+          const recovered = await recoverOriginalMnemonic(prfEntropy, ciphertext);
           setRecoveredMnemonic(recovered);
           
           if (recovered === original) {
-            setStatus("✅ Success! Original mnemonic recovered correctly using PRF + bitmask");
+            setStatus("✅ Success! Original mnemonic recovered correctly using PRF + encrypted data");
           } else {
             setStatus("❌ Recovery failed - recovered mnemonic doesn't match original");
           }
@@ -141,13 +141,13 @@ export function PRFDemo({ passkey }: PRFDemoProps) {
         const prfDerivedMnemonic = await deriveMnemonicFromPRF(prfData);
         setPrfMnemonic(prfDerivedMnemonic);
         
-        // Recover original using bitmask
+        // Recover original using encrypted ciphertext
         const prfEntropy = await mnemonicToEntropy(prfDerivedMnemonic);
-        const recovered = recoverOriginalMnemonic(prfEntropy, storedBitmask);
+        const recovered = await recoverOriginalMnemonic(prfEntropy, storedBitmask);
         setRecoveredMnemonic(recovered);
         
         if (recovered === storedOriginal) {
-          setStatus("✅ Recovery successful! Original mnemonic recovered from passkey + bitmask");
+          setStatus("✅ Recovery successful! Original mnemonic recovered from passkey + encrypted data");
           
           // Derive keypair
           const derivedKeypair = await deriveKeypairFromMnemonic(recovered);
@@ -220,9 +220,9 @@ export function PRFDemo({ passkey }: PRFDemoProps) {
 
         {bitmask && (
           <div className="p-4 bg-gray-800 rounded">
-            <h3 className="font-bold text-green-400 mb-2">Bridge Bitmask:</h3>
+            <h3 className="font-bold text-green-400 mb-2">Encrypted Bridge Data:</h3>
             <p className="text-xs font-mono break-all">{bitmask}</p>
-            <p className="text-xs text-gray-400 mt-2">This bitmask bridges from PRF mnemonic to original mnemonic</p>
+            <p className="text-xs text-gray-400 mt-2">This encrypted data bridges from PRF mnemonic to original mnemonic</p>
           </div>
         )}
 

@@ -164,20 +164,20 @@ export function WalletManager({
         throw new Error("Failed to create passkey with PRF. Please use a PRF-enabled authenticator.");
       }
       
-      // Step 4: Authenticate to get PRF output and create bitmask
+      // Step 4: Authenticate to get PRF output and create encrypted recovery data
       if (extendedPasskey.prfOutput?.enabled === true) {
-        console.log("[WalletManager] PRF is enabled, authenticating to create recovery bitmask...");
+        console.log("[WalletManager] PRF is enabled, authenticating to create encrypted recovery data...");
         
         // Store passkey info for later PRF evaluation
         localStorage.setItem(`passkey-${extendedPasskey.id}-salt`, prfSalt);
         
-        setStatus("Authenticating with passkey to create recovery bitmask...");
+        setStatus("Authenticating with passkey to create encrypted recovery data...");
         try {
           const { authenticateWithPRF } = await import("../lib/webauthn-prf");
           const prfOutput = await authenticateWithPRF(passkey.id, prfSalt);
           
           if (prfOutput) {
-            console.log("\n=== Creating Recovery Bitmask ===");
+            console.log("\n=== Creating Encrypted Recovery Data ===");
             
             // Derive PRF-based mnemonic
             const prfMnemonic = await deriveMnemonicFromPRF(prfOutput);
@@ -187,11 +187,11 @@ export function WalletManager({
             const originalEntropy = await mnemonicToEntropy(mnemonic);
             const prfEntropy = await mnemonicToEntropy(prfMnemonic);
             
-            // Generate bitmask that bridges PRF mnemonic to original
-            const bitmask = generateMnemonicBridgeBitmask(originalEntropy, prfEntropy);
+            // Generate encrypted ciphertext that bridges PRF mnemonic to original
+            const ciphertext = await generateMnemonicBridgeBitmask(originalEntropy, prfEntropy);
             
-            // Store the bitmask
-            storeMnemonicBridgeBitmask(extendedPasskey.id, bitmask);
+            // Store the ciphertext
+            storeMnemonicBridgeBitmask(extendedPasskey.id, ciphertext);
             
             // Store the passkey for later use during upgrade
             const storedPasskeys = JSON.parse(localStorage.getItem("eoa-passkeys") || "{}");
@@ -201,7 +201,7 @@ export function WalletManager({
             setStatus("✓ Wallet created with recovery passkey!");
             console.log("\n=== Wallet Creation Complete ===");
             console.log("Original wallet derived from:", showMnemonicInput ? "imported mnemonic" : "generated mnemonic");
-            console.log("Recovery bitmask created to bridge PRF mnemonic to original");
+            console.log("Encrypted recovery data created to bridge PRF mnemonic to original");
           } else {
             console.error("[WalletManager] No PRF output received during authentication");
             throw new Error("PRF authentication failed - no output received");

@@ -460,20 +460,20 @@ export default function Home() {
       const prfDerivedMnemonic = await deriveMnemonicFromPRF(prfOutput);
       setPrfMnemonic(prfDerivedMnemonic);
       
-      // Generate bitmask
-      setBitmaskStatus("Generating bitmask...");
+      // Generate encrypted ciphertext
+      setBitmaskStatus("Generating encrypted recovery data...");
       
       const originalEntropy = await mnemonicToEntropy(trimmedMnemonic);
       const prfEntropy = await mnemonicToEntropy(prfDerivedMnemonic);
-      const bitmask = generateMnemonicBridgeBitmask(originalEntropy, prfEntropy);
+      const ciphertext = await generateMnemonicBridgeBitmask(originalEntropy, prfEntropy);
       
-      const bitmaskHex = bytesToHex(new Uint8Array(bitmask));
-      setBitmaskOutput(bitmaskHex);
+      const ciphertextHex = bytesToHex(new Uint8Array(ciphertext));
+      setBitmaskOutput(ciphertextHex);
       
-      // Store bitmask
-      storeMnemonicBridgeBitmask(extendedPasskey.id, bitmask);
+      // Store ciphertext
+      storeMnemonicBridgeBitmask(extendedPasskey.id, ciphertext);
       
-      setBitmaskStatus(`✅ Bitmask created! Passkey "${passkeyName}" (ID: ${passkey.id})`);
+      setBitmaskStatus(`✅ Encrypted recovery data created! Passkey "${passkeyName}" (ID: ${passkey.id})`);
     } catch (error) {
       setBitmaskStatus(`❌ Error: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -505,7 +505,7 @@ export default function Home() {
     const trimmedBitmask = recoveryBitmask.trim();
     
     if (!trimmedBitmask || !selectedPasskeyId) {
-      setRecoveryStatus("❌ Please select a passkey and provide a bitmask");
+      setRecoveryStatus("❌ Please select a passkey and provide the encrypted recovery data");
       return;
     }
 
@@ -533,7 +533,7 @@ export default function Home() {
       // Recover original mnemonic
       setRecoveryStatus("Recovering original mnemonic...");
       const prfEntropy = await mnemonicToEntropy(prfDerivedMnemonic);
-      const recovered = recoverOriginalMnemonic(prfEntropy, bitmaskBytes.buffer as ArrayBuffer);
+      const recovered = await recoverOriginalMnemonic(prfEntropy, bitmaskBytes.buffer as ArrayBuffer);
       
       setRecoveredMnemonic(recovered);
       setRecoveryStatus("✅ Mnemonic recovered successfully!");
@@ -567,7 +567,7 @@ export default function Home() {
   const sections = [
     { id: "generate", title: "1. Generate Mnemonic" },
     { id: "upgrade", title: "2. Upgrade Mnemonic to Smart Wallet" },
-    { id: "bitmask", title: "3. Create PRF Passkey & Bitmask" },
+    { id: "bitmask", title: "3. Create PRF Passkey & Encrypted Recovery" },
     { id: "recover", title: "4. Recover Mnemonic" },
   ];
 
@@ -828,12 +828,12 @@ export default function Home() {
           </div>
         )}
 
-        {/* Section 3: Create PRF Passkey & Bitmask (Updated) */}
+        {/* Section 3: Create PRF Passkey & Encrypted Recovery (Updated) */}
         {activeSection === "bitmask" && (
           <div className="bg-gray-900 p-8 rounded-lg">
-            <h2 className="text-2xl font-bold mb-6 text-blue-400">Create PRF Passkey & Bitmask</h2>
+            <h2 className="text-2xl font-bold mb-6 text-blue-400">Create PRF Passkey & Encrypted Recovery</h2>
             <p className="text-gray-400 mb-6">
-              Create a named PRF-enabled passkey and generate a bitmask that bridges to your mnemonic.
+              Create a named PRF-enabled passkey and generate encrypted recovery data that protects your mnemonic.
             </p>
             
             <div className="space-y-4">
@@ -863,7 +863,7 @@ export default function Home() {
                 onClick={handleCreateBitmask}
                 className="px-6 py-3 bg-blue-500 text-white rounded hover:bg-blue-600"
               >
-                Create Named PRF Passkey & Generate Bitmask
+                Create Named PRF Passkey & Generate Encrypted Recovery
               </button>
               
               {bitmaskPasskey && (
@@ -888,10 +888,10 @@ export default function Home() {
               
               {bitmaskOutput && (
                 <div className="bg-gray-800 p-4 rounded">
-                  <h3 className="font-bold text-green-400 mb-2">Bitmask (hex):</h3>
+                  <h3 className="font-bold text-green-400 mb-2">Encrypted Recovery Data (hex):</h3>
                   <p className="font-mono text-xs break-all">{bitmaskOutput}</p>
                   <p className="text-xs text-gray-500 mt-2">
-                    Save this bitmask - combined with your &quot;{passkeyName}&quot; passkey, it can recover your original mnemonic
+                    Save this encrypted data - combined with your &quot;{passkeyName}&quot; passkey, it can recover your original mnemonic
                   </p>
                 </div>
               )}
@@ -910,7 +910,7 @@ export default function Home() {
           <div className="bg-gray-900 p-8 rounded-lg">
             <h2 className="text-2xl font-bold mb-6 text-blue-400">Recover Mnemonic</h2>
             <p className="text-gray-400 mb-6">
-              Select a passkey and provide the bitmask to recover your original mnemonic.
+              Select a passkey and provide the encrypted recovery data to recover your original mnemonic.
             </p>
             
             <div className="space-y-4">
@@ -943,7 +943,7 @@ export default function Home() {
               <textarea
                 value={recoveryBitmask}
                 onChange={(e) => setRecoveryBitmask(e.target.value)}
-                placeholder="Enter bitmask (hex)..."
+                placeholder="Enter encrypted recovery data (hex)..."
                 className="w-full p-3 bg-gray-800 text-white rounded border border-gray-600 focus:border-blue-500 focus:outline-none"
                 rows={3}
               />

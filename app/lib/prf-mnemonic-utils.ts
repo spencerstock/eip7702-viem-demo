@@ -13,6 +13,116 @@ import { bytesToHex, hexToBytes } from "@noble/hashes/utils";
 // Constants
 const SALT_SUFFIX = ":Base-Wallet-Recovery";
 const PBKDF2_ITERATIONS = 2048;
+const AES_GCM_IV_LENGTH = 12; // 96 bits for AES-GCM
+const AES_GCM_TAG_LENGTH = 16; // 128 bits auth tag
+
+/**
+ * Encrypt data using AES-GCM
+ * @param plaintext - Data to encrypt
+ * @param key - Encryption key (will be derived from PRF output)
+ * @returns Encrypted data with IV prepended
+ */
+async function encryptAESGCM(plaintext: ArrayBuffer, key: ArrayBuffer): Promise<ArrayBuffer> {
+  // Derive a proper AES key from the PRF output using HKDF-like approach
+  const keyMaterial = await crypto.subtle.importKey(
+    "raw",
+    key,
+    "HKDF",
+    false,
+    ["deriveKey"]
+  );
+  
+  // Derive AES-GCM key
+  const aesKey = await crypto.subtle.deriveKey(
+    {
+      name: "HKDF",
+      hash: "SHA-256",
+      salt: new TextEncoder().encode("mnemonic-bridge-aes-gcm"),
+      info: new TextEncoder().encode("encryption")
+    },
+    keyMaterial,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["encrypt"]
+  );
+  
+  // Generate random IV
+  const iv = crypto.getRandomValues(new Uint8Array(AES_GCM_IV_LENGTH));
+  
+  // Encrypt
+  const ciphertext = await crypto.subtle.encrypt(
+    {
+      name: "AES-GCM",
+      iv: iv,
+    },
+    aesKey,
+    plaintext
+  );
+  
+  // Combine IV + ciphertext (which includes auth tag)
+  const result = new Uint8Array(iv.length + ciphertext.byteLength);
+  result.set(iv, 0);
+  result.set(new Uint8Array(ciphertext), iv.length);
+  
+  console.log("[PRF-Mnemonic] Encrypted data - IV:", bytesToHex(iv), "Total length:", result.length);
+  
+  return result.buffer;
+}
+
+/**
+ * Decrypt data using AES-GCM
+ * @param ciphertext - Encrypted data with IV prepended
+ * @param key - Decryption key (PRF output)
+ * @returns Decrypted data
+ */
+async function decryptAESGCM(ciphertext: ArrayBuffer, key: ArrayBuffer): Promise<ArrayBuffer> {
+  const data = new Uint8Array(ciphertext);
+  
+  // Extract IV and actual ciphertext
+  const iv = data.slice(0, AES_GCM_IV_LENGTH);
+  const encryptedData = data.slice(AES_GCM_IV_LENGTH);
+  
+  console.log("[PRF-Mnemonic] Decrypting - IV:", bytesToHex(iv), "Ciphertext length:", encryptedData.length);
+  
+  // Derive the same AES key
+  const keyMaterial = await crypto.subtle.importKey(
+    "raw",
+    key,
+    "HKDF",
+    false,
+    ["deriveKey"]
+  );
+  
+  const aesKey = await crypto.subtle.deriveKey(
+    {
+      name: "HKDF",
+      hash: "SHA-256",
+      salt: new TextEncoder().encode("mnemonic-bridge-aes-gcm"),
+      info: new TextEncoder().encode("encryption")
+    },
+    keyMaterial,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["decrypt"]
+  );
+  
+  // Decrypt
+  try {
+    const plaintext = await crypto.subtle.decrypt(
+      {
+        name: "AES-GCM",
+        iv: iv,
+      },
+      aesKey,
+      encryptedData
+    );
+    
+    return plaintext;
+  } catch (error) {
+    console.error("[PRF-Mnemonic] Decryption failed:", error);
+    throw new Error("Failed to decrypt: Invalid key or corrupted data");
+  }
+}
 
 /**
  * Generate salt for PRF evaluation
@@ -236,31 +346,35 @@ export function entropyToMnemonic(entropy: ArrayBuffer): string {
 }
 
 /**
- * Generate bitmask to bridge from PRF-derived mnemonic to original mnemonic
+ * Generate encrypted ciphertext to bridge from PRF-derived mnemonic to original mnemonic
+ * Uses AES-GCM encryption with PRF output as key material
  * @param originalMnemonicEntropy - Entropy from the original mnemonic
- * @param prfMnemonicEntropy - Entropy from the PRF-derived mnemonic
- * @returns Bitmask for recovery
+ * @param prfMnemonicEntropy - Entropy from the PRF-derived mnemonic (used as key material)
+ * @returns Encrypted ciphertext for recovery
  */
-export function generateMnemonicBridgeBitmask(
+export async function generateMnemonicBridgeBitmask(
   originalMnemonicEntropy: ArrayBuffer,
   prfMnemonicEntropy: ArrayBuffer
-): ArrayBuffer {
-  const bitmask = xorBuffers(originalMnemonicEntropy, prfMnemonicEntropy);
-  console.log("[PRF-Mnemonic] Generated mnemonic bridge bitmask (hex):", bytesToHex(new Uint8Array(bitmask)));
-  return bitmask;
+): Promise<ArrayBuffer> {
+  // Use PRF entropy as key material to encrypt the original entropy
+  const ciphertext = await encryptAESGCM(originalMnemonicEntropy, prfMnemonicEntropy);
+  console.log("[PRF-Mnemonic] Generated encrypted bridge data (hex):", bytesToHex(new Uint8Array(ciphertext)));
+  return ciphertext;
 }
 
 /**
- * Recover original mnemonic using PRF-derived mnemonic and bitmask
- * @param prfMnemonicEntropy - Entropy from the PRF-derived mnemonic
- * @param bitmask - Recovery bitmask
+ * Recover original mnemonic using PRF-derived mnemonic and encrypted ciphertext
+ * Uses AES-GCM decryption with PRF output as key material
+ * @param prfMnemonicEntropy - Entropy from the PRF-derived mnemonic (used as key material)
+ * @param ciphertext - Encrypted recovery data
  * @returns Recovered original mnemonic
  */
-export function recoverOriginalMnemonic(
+export async function recoverOriginalMnemonic(
   prfMnemonicEntropy: ArrayBuffer,
-  bitmask: ArrayBuffer
-): string {
-  const recoveredEntropy = xorBuffers(prfMnemonicEntropy, bitmask);
+  ciphertext: ArrayBuffer
+): Promise<string> {
+  // Use PRF entropy as key material to decrypt the original entropy
+  const recoveredEntropy = await decryptAESGCM(ciphertext, prfMnemonicEntropy);
   console.log("[PRF-Mnemonic] Recovered original entropy (hex):", bytesToHex(new Uint8Array(recoveredEntropy)));
   
   const recoveredMnemonic = entropyToMnemonic(recoveredEntropy);
